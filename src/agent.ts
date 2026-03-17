@@ -292,14 +292,10 @@ export async function runAgent(
         // Generate reasoning summary if enabled and we have reasoning text
         let reasoningSummaryText: string | undefined;
         if (config.reasoningSummary && config.enableReasoning && result.reasoning) {
-            console.log(`[debug] reasoning buffer length: ${result.reasoning.length}, preview: ${result.reasoning.slice(0, 200)}`);
             reasoningSummaryText = await generateReasoningSummary(
                 result.reasoning,
                 config
             );
-            console.log(`[debug] summary result: "${reasoningSummaryText}"`);
-        } else if (config.reasoningSummary && config.enableReasoning) {
-            console.log(`[debug] reasoningSummary enabled but reasoning buffer is empty`);
         }
 
         return { text: responseText, reasoningSummary: reasoningSummaryText };
