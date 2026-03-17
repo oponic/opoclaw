@@ -58,6 +58,13 @@ async function buildChannelHistory(msg: Message): Promise<ChatMessage[]> {
         if (!text && m.attachments.size === 0) continue;
 
         if (isBot) {
+            // Convert -# prefix on assistant messages to <summary> tags
+            if (text.startsWith("-# ")) {
+                const lines = text.split("\n");
+                const summaryLine = lines[0].slice(3); // remove "-# "
+                const rest = lines.slice(1).join("\n").trim();
+                text = rest ? `<summary>${summaryLine}</summary>\n${rest}` : `<summary>${summaryLine}</summary>`;
+            }
             history.push({ role: "assistant", content: text });
         } else {
             history.push({
@@ -142,7 +149,7 @@ client.on(Events.MessageCreate, async (msg: Message) => {
             reasoningSummary.startsWith("The assistant")
         );
         if (reasoningSummary && !isReasoningMeta) {
-            finalResponse = `#- ${reasoningSummary}
+            finalResponse = `-# ${reasoningSummary}
 ${responseText}`;
         }
 
