@@ -91,9 +91,12 @@ export interface OpoclawConfig {
     openrouterKey?: string;
     openrouterModel?: string;
     // Ollama (local models)
-    provider?: "openrouter" | "ollama";
+    provider?: "openrouter" | "ollama" | "custom";
     ollamaBaseURL?: string;
     ollamaModel?: string;
+    customBaseURL?: string;
+    customAPIKey?: string;
+    customModel?: string;
     // General
     allowBots?: boolean;
     enableReasoning?: boolean;
@@ -115,22 +118,19 @@ export function getConfigPath(): string {
 }
 
 export function getApiBaseUrl(config: OpoclawConfig): string {
-    if (config.provider === "ollama") {
-        return config.ollamaBaseURL || "http://localhost:11434";
-    }
+    if (config.provider === "custom") return config.customBaseURL || "http://localhost:11434";
+    if (config.provider === "ollama") return config.ollamaBaseURL || "http://localhost:11434";
     return "https://openrouter.ai";
 }
 
 export function getApiKey(config: OpoclawConfig): string {
-    if (config.provider === "ollama") {
-        return config.ollamaBaseURL || "ollama"; // Ollama doesn't need a real key
-    }
+    if (config.provider === "custom") return config.customAPIKey || "ollama";
+    if (config.provider === "ollama") return "ollama";
     return config.openrouterKey || "";
 }
 
 export function getModelId(config: OpoclawConfig): string {
-    if (config.provider === "ollama") {
-        return config.ollamaModel || "llama3.2";
-    }
+    if (config.provider === "custom") return config.customModel || "unknown";
+    if (config.provider === "ollama") return config.ollamaModel || "llama3.2";
     return config.openrouterModel || "openrouter/auto";
 }

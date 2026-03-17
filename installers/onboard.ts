@@ -134,16 +134,21 @@ async function main() {
 
   // ── Provider ─────────────────────────────────────────────────────────────
 
-  const providerAns = await ask("Provider [openrouter/ollama] (openrouter): ");
-  const provider = providerAns.toLowerCase() === "ollama" ? "ollama" : "openrouter";
+  const providerAns = await ask("Provider [openrouter/ollama/custom] (openrouter): ");
+  const p = providerAns.toLowerCase();
+  const provider: "openrouter" | "ollama" | "custom" = p === "ollama" ? "ollama" : p === "custom" ? "custom" : "openrouter";
 
-  let ollamaBaseURL = "";
-  let ollamaModel = "";
+  let ollamaBaseURL = "", ollamaModel = "";
+  let customBaseURL = "", customAPIKey = "", customModel = "";
   if (provider === "ollama") {
     ollamaBaseURL = await ask("Ollama base URL [http://localhost:11434]: ");
     if (!ollamaBaseURL) ollamaBaseURL = "http://localhost:11434";
     ollamaModel = await ask("Ollama model [llama3.2]: ");
     if (!ollamaModel) ollamaModel = "llama3.2";
+  } else if (provider === "custom") {
+    customBaseURL = await ask("Base URL (no /v1/chat/completions): ");
+    customAPIKey = await ask("API key (blank if none): ");
+    customModel = await ask("Model name: ");
   }
 
   // ── Model ──────────────────────────────────────────────────────────────
@@ -190,6 +195,10 @@ async function main() {
   if (provider === "ollama") {
     toml += \`ollamaBaseURL = "\${ollamaBaseURL}"\n\`;
     toml += \`ollamaModel = "\${ollamaModel}"\n\`;
+  } else if (provider === "custom") {
+    toml += \`customBaseURL = "\${customBaseURL}"\n\`;
+    toml += \`customAPIKey = "\${customAPIKey}"\n\`;
+    toml += \`customModel = "\${customModel}"\n\`;
   }
 
   writeFileSync(CONFIG_FILE, toml);
