@@ -119,6 +119,7 @@ async function streamCompletion(
     const toolCallMap: Record<number, { id: string; name: string; arguments: string }> = {};
     let finishReason: string | null = null;
     let usage: any = null;
+    let reasoningBuffer = "";
 
     while (true) {
         const { done, value } = await reader.read();
@@ -148,9 +149,17 @@ async function streamCompletion(
             const delta = choice.delta;
             if (!delta) continue;
 
-            if ((delta as any).reasoning && !firstToken) {
-                firstToken = true;
-                onFirstToken();
+            const reasoningDelta = (delta as any).reasoning;
+            if (reasoningDelta) {
+                if (typeof reasoningDelta === "string") {
+                    reasoningBuffer += reasoningDelta;
+                } else if (reasoningDelta.content) {
+                    reasoningBuffer += reasoningDelta.content;
+                }
+                if (!firstToken) {
+                    firstToken = true;
+                    onFirstToken();
+                }
             }
 
             if (delta.content) {
@@ -186,7 +195,7 @@ async function streamCompletion(
         function: { name: tc.name, arguments: tc.arguments },
     }));
 
-    return { text: textBuffer || null, toolCalls, usage };
+    return { text: textBuffer || null, toolCalls, usage, reasoning: reasoningBuffer };
 }
 
 async function generateReasoningSummary(
@@ -239,11 +248,12 @@ export async function runAgent(
     };
 
     for (let iteration = 0; iteration < 20; iteration++) {
-        const { text, toolCalls, usage } = await streamCompletion(
+        const result = await streamCompletion(
             messages,
             config,
             wrappedOnFirstToken
         );
+        const { text, toolCalls, usage } = result;
 
         // Record usage
         if (usage) {
@@ -279,15 +289,16 @@ export async function runAgent(
         // No tool calls — final text response
         const responseText = text ?? "(no response)";
 
-        // Generate reasoning summary if enabled
-        if (config.reasoningSummary && config.enableReasoning) {
-            // Extract reasoning from the last assistant message if available
-            // OpenRouter may include reasoning in the response for non-streaming
-            // For streaming, we'd need to capture it separately
-            // For now, skip summary if we can't get reasoning text
+        // Generate reasoning summary if enabled and we have reasoning text
+        let reasoningSummaryText: string | undefined;
+        if (config.reasoningSummary && config.enableReasoning && result.reasoning) {
+            reasoningSummaryText = await generateReasoningSummary(
+                result.reasoning,
+                config
+            );
         }
 
-        return { text: responseText };
+        return { text: responseText, reasoningSummary: reasoningSummaryText };
     }
 
     return { text: "(agent loop limit reached)" };

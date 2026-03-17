@@ -123,18 +123,26 @@ client.on(Events.MessageCreate, async (msg: Message) => {
     };
 
     try {
-        const { text: responseText } = await runAgent(
+        const { text: responseText, reasoningSummary } = await runAgent(
             history,
             systemPrompt,
             config,
             onFirstToken
         );
 
+        // Prefix reasoning summary if available
+        let finalResponse = responseText;
+        if (reasoningSummary) {
+            finalResponse = `-# ${reasoningSummary}
+
+${responseText}`;
+        }
+
         // Clear previous pending file sends
         clearPendingFileSend();
 
         // Split into chunks
-        const chunks = splitMessage(responseText);
+        const chunks = splitMessage(finalResponse);
         let fileSent = false;
 
         for (let i = 0; i < chunks.length; i++) {
