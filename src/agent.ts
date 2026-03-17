@@ -214,36 +214,23 @@ async function generateReasoningSummary(
             model,
             messages: [
                 {
-                    role: "system",
-                    content: "You output ONLY a single plain text sentence. No thinking, no reasoning, no markdown."
-                },
-                {
                     role: "user",
-                    content: `Summarize this reasoning in one short sentence (no markdown, just plain text):
-
-\${reasoningText.slice(0, 3000)}`
+                    content: `Summarize this reasoning in one short sentence (no markdown, just plain text):\n\n${reasoningText.slice(0, 3000)}`
                 },
             ],
             stream: false,
-            max_tokens: 200,
+            max_tokens: 500,
         }),
     });
 
     if (!response.ok) {
         const errText = await response.text().catch(() => "");
-        console.log(`[summary] API error \${response.status}: \${errText.slice(0, 200)}`);
+        console.log(`[summary] API error ${response.status}: ${errText.slice(0, 200)}`);
         return "(reasoning summary failed)";
     }
 
     const data: any = await response.json();
-    const msg = data.choices?.[0]?.message;
-    const content = msg?.content?.trim();
-    // For reasoning models: extract last substantive line from reasoning field as fallback
-    const reasoningLines = (msg?.reasoning || "").split("
-").map((l: string) => l.trim()).filter((l: string) => l && !l.startsWith("I ") && !l.startsWith("The user") && !l.startsWith("We need"));
-    const reasoningFallback = reasoningLines[reasoningLines.length - 1]?.replace(/^[\"']|[\"']$/g, "").trim();
-    const result = content || reasoningFallback || "";
-    return result || "(no summary)";
+    return data.choices?.[0]?.message?.content?.trim() || "(no summary)";
 }
 
 export async function runAgent(
