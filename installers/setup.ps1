@@ -52,6 +52,7 @@ function Clone-Repo {
         Write-Ok "opoclaw already exists — pulling latest"
         Set-Location $InstallDir
         git fetch --tags
+        git checkout main 2>$null || git checkout -b main
         git pull --rebase
         $latestTag = git tag --sort=-v:refname | Select-Object -First 1
         if ($latestTag) {

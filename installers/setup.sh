@@ -95,6 +95,7 @@ clone_repo() {
         ok "opoclaw already exists at $INSTALL_DIR — pulling latest"
         cd "$INSTALL_DIR"
         git fetch --tags
+        git checkout main 2>/dev/null || git checkout -b main
         git pull --rebase
         # Checkout latest tag
         LATEST_TAG=$(git tag --sort=-v:refname | head -1)
