@@ -1,4 +1,5 @@
 import { TOOL_DEFINITIONS, handleToolCall } from "./tools.ts";
+import { getApiBaseUrl, getApiKey, getModelId } from "./config.ts";
 
 interface Message {
     role: "system" | "user" | "assistant" | "tool";
@@ -18,8 +19,11 @@ interface ToolCall {
 }
 
 interface Config {
-    openrouterKey: string;
-    openrouterModel: string;
+    openrouterKey?: string;
+    openrouterModel?: string;
+    provider?: "openrouter" | "ollama";
+    ollamaBaseURL?: string;
+    ollamaModel?: string;
     enableReasoning?: boolean;
     reasoningSummary?: boolean;
     reasoningSummaryModel?: string;
@@ -85,7 +89,7 @@ async function streamCompletion(
     onFirstToken: () => void
 ): Promise<{ text: string | null; toolCalls: ToolCall[]; usage: any }> {
     const body: any = {
-        model: config.openrouterModel,
+        model: modelId,
         messages,
         tools: TOOL_DEFINITIONS,
         tool_choice: "auto",
@@ -97,10 +101,13 @@ async function streamCompletion(
         body.reasoning = { enabled: true };
     }
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const baseUrl = getApiBaseUrl(config);
+    const apiKey = getApiKey(config);
+    const modelId = getModelId(config);
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: {
-            Authorization: `Bearer ${config.openrouterKey}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
@@ -202,11 +209,14 @@ async function generateReasoningSummary(
     reasoningText: string,
     config: Config
 ): Promise<string> {
-    const model = config.reasoningSummaryModel || config.openrouterModel;
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const model = config.reasoningSummaryModel || getModelId(config);
+    const baseUrl = getApiBaseUrl(config);
+    const apiKey = getApiKey(config);
+    const modelId = getModelId(config);
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: {
-            Authorization: `Bearer ${config.openrouterKey}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -261,7 +271,7 @@ export async function runAgent(
 
         // Record usage
         if (usage) {
-            await recordUsage(usage, config.openrouterModel);
+            await recordUsage(usage, getModelId(config));
         }
 
         if (toolCalls.length > 0) {

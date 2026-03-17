@@ -88,8 +88,13 @@ export function formatTOMLValue(value: any): string {
 
 export interface OpoclawConfig {
     discordToken: string;
-    openrouterKey: string;
-    openrouterModel: string;
+    openrouterKey?: string;
+    openrouterModel?: string;
+    // Ollama (local models)
+    provider?: "openrouter" | "ollama";
+    ollamaBaseURL?: string;
+    ollamaModel?: string;
+    // General
     allowBots?: boolean;
     enableReasoning?: boolean;
     reasoningSummary?: boolean;
@@ -107,4 +112,25 @@ export function loadConfig(): OpoclawConfig {
 
 export function getConfigPath(): string {
     return CONFIG_FILE;
+}
+
+export function getApiBaseUrl(config: OpoclawConfig): string {
+    if (config.provider === "ollama") {
+        return config.ollamaBaseURL || "http://localhost:11434";
+    }
+    return "https://openrouter.ai";
+}
+
+export function getApiKey(config: OpoclawConfig): string {
+    if (config.provider === "ollama") {
+        return config.ollamaBaseURL || "ollama"; // Ollama doesn't need a real key
+    }
+    return config.openrouterKey || "";
+}
+
+export function getModelId(config: OpoclawConfig): string {
+    if (config.provider === "ollama") {
+        return config.ollamaModel || "llama3.2";
+    }
+    return config.openrouterModel || "openrouter/auto";
 }

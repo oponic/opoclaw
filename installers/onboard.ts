@@ -132,6 +132,20 @@ async function main() {
     process.exit(1);
   }
 
+  // ── Provider ─────────────────────────────────────────────────────────────
+
+  const providerAns = await ask("Provider [openrouter/ollama] (openrouter): ");
+  const provider = providerAns.toLowerCase() === "ollama" ? "ollama" : "openrouter";
+
+  let ollamaBaseURL = "";
+  let ollamaModel = "";
+  if (provider === "ollama") {
+    ollamaBaseURL = await ask("Ollama base URL [http://localhost:11434]: ");
+    if (!ollamaBaseURL) ollamaBaseURL = "http://localhost:11434";
+    ollamaModel = await ask("Ollama model [llama3.2]: ");
+    if (!ollamaModel) ollamaModel = "llama3.2";
+  }
+
   // ── Model ──────────────────────────────────────────────────────────────
 
   const model = await ask("Model ID [openrouter/auto]: ");
@@ -171,6 +185,11 @@ async function main() {
   toml += `reasoningSummary = ${reasoningSummary ? "true" : "false"}\n`;
   if (reasoningSummaryModel) {
     toml += \`reasoningSummaryModel = "\${reasoningSummaryModel}"\n\`;
+  }
+  toml += \`provider = "\${provider}"\n\`;
+  if (provider === "ollama") {
+    toml += \`ollamaBaseURL = "\${ollamaBaseURL}"\n\`;
+    toml += \`ollamaModel = "\${ollamaModel}"\n\`;
   }
 
   writeFileSync(CONFIG_FILE, toml);
