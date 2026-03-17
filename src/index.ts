@@ -58,15 +58,6 @@ async function buildChannelHistory(msg: Message): Promise<ChatMessage[]> {
         if (!text && m.attachments.size === 0) continue;
 
         if (isBot) {
-            // Convert -# prefix on assistant messages to <think> tags
-            if (text.startsWith("-# ")) {
-                const lines = text.split("\n");
-                const summaryLine = lines[0].slice(3); // remove "-# "
-                const rest = lines.slice(1).join("\n").trim();
-                const openTag = "<" + "think" + ">";
-                const closeTag = "<" + "/" + "think" + ">";
-                text = rest ? `${openTag}${summaryLine}${closeTag}\n${rest}` : `${openTag}${summaryLine}${closeTag}`;
-            }
             history.push({ role: "assistant", content: text });
         } else {
             history.push({
@@ -140,18 +131,10 @@ client.on(Events.MessageCreate, async (msg: Message) => {
             onFirstToken
         );
 
-        // Prefix reasoning summary only if it's a concise, real summary
+        // Prefix reasoning summary if it's a real summary (not fallback)
         let finalResponse = responseText;
-        const isReasoningMeta = reasoningSummary && (
-            reasoningSummary.length > 200 ||
-            reasoningSummary.includes("no summary") ||
-            reasoningSummary.includes("failed") ||
-            reasoningSummary.startsWith("The user") ||
-            reasoningSummary.startsWith("I need to") ||
-            reasoningSummary.startsWith("The assistant")
-        );
-        if (reasoningSummary && !isReasoningMeta) {
-            finalResponse = `-# ${reasoningSummary}
+        if (reasoningSummary && !reasoningSummary.includes("no summary") && !reasoningSummary.includes("failed")) {
+            finalResponse = `-${reasoningSummary}
 ${responseText}`;
         }
 
