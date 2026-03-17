@@ -126,7 +126,8 @@ async function streamCompletion(
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        const lines = chunk.split("
+");
 
         for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
@@ -150,10 +151,6 @@ async function streamCompletion(
             if (!delta) continue;
 
             const reasoningDelta = (delta as any).reasoning;
-            // First chunk: log available delta keys for debugging
-            if (!firstToken && (delta.content || reasoningDelta)) {
-                console.log(`[stream] delta keys: ${Object.keys(delta).join(", ")}${reasoningDelta ? " + reasoning" : ""}`);
-            }
             if (reasoningDelta) {
                 if (typeof reasoningDelta === "string") {
                     reasoningBuffer += reasoningDelta;
@@ -217,19 +214,36 @@ async function generateReasoningSummary(
             model,
             messages: [
                 {
+                    role: "system",
+                    content: "You output ONLY a single plain text sentence. No thinking, no reasoning, no markdown."
+                },
+                {
                     role: "user",
-                    content: `Summarize this reasoning in one short sentence (no markdown, just plain text):\n\n${reasoningText.slice(0, 3000)}`,
+                    content: `Summarize this reasoning in one short sentence (no markdown, just plain text):
+
+\${reasoningText.slice(0, 3000)}`
                 },
             ],
             stream: false,
-            max_tokens: 100,
+            max_tokens: 200,
         }),
     });
 
-    if (!response.ok) return "(reasoning summary failed)";
+    if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        console.log(`[summary] API error \${response.status}: \${errText.slice(0, 200)}`);
+        return "(reasoning summary failed)";
+    }
 
     const data: any = await response.json();
-    return data.choices?.[0]?.message?.content?.trim() || "(no summary)";
+    const msg = data.choices?.[0]?.message;
+    const content = msg?.content?.trim();
+    // For reasoning models: extract last substantive line from reasoning field as fallback
+    const reasoningLines = (msg?.reasoning || "").split("
+").map((l: string) => l.trim()).filter((l: string) => l && !l.startsWith("I ") && !l.startsWith("The user") && !l.startsWith("We need"));
+    const reasoningFallback = reasoningLines[reasoningLines.length - 1]?.replace(/^[\"']|[\"']$/g, "").trim();
+    const result = content || reasoningFallback || "";
+    return result || "(no summary)";
 }
 
 export async function runAgent(
@@ -296,14 +310,10 @@ export async function runAgent(
         // Generate reasoning summary if enabled and we have reasoning text
         let reasoningSummaryText: string | undefined;
         if (config.reasoningSummary && config.enableReasoning && result.reasoning) {
-            console.log(`[summary] buffer length=${result.reasoning.length}, preview="${result.reasoning.slice(0, 150)}"`);
             reasoningSummaryText = await generateReasoningSummary(
                 result.reasoning,
                 config
             );
-            console.log(`[summary] result="${reasoningSummaryText}"`);
-        } else {
-            console.log(`[summary] skipped — enabled=${config.reasoningSummary}, reasoning=${config.enableReasoning}, buffer=${result.reasoning?.length ?? 0}`);
         }
 
         return { text: responseText, reasoningSummary: reasoningSummaryText };
