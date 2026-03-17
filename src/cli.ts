@@ -510,6 +510,60 @@ async function main() {
       }
       break;
 
+    case "explainer":
+    case "explain":
+        console.log(`
+${B}How opoclaw works${X}
+
+opoclaw is a Discord bot framework. When someone mentions the bot:
+
+1. ${B}Message received${X} — Discord event triggers the MessageCreate handler.
+   Only messages that @mention the bot (or reply to it) are processed.
+   Own messages are always ignored. Other bots are ignored unless
+   allowBots=true in config.toml.
+
+2. ${B}System prompt loaded${X} — Three workspace files are read and composed:
+   - SOUL.md — personality, tone, rules, vibe
+   - IDENTITY.md — name, appearance, self-description
+   - AGENTS.md — operating instructions, memory system, safety rules
+   These form the system prompt sent to the LLM.
+
+3. ${B}Channel history${X} — Last 50 messages in the channel are fetched,
+   formatted as [name]: content, and sent as conversation context.
+
+4. ${B}LLM call${X} — The composed prompt + history is sent to the configured
+   provider (OpenRouter, Ollama, or custom endpoint). The model generates
+   a response. If reasoning is enabled, the model's thinking tokens are
+   captured during streaming.
+
+5. ${B}Tools${X} — The model can request tool calls (file operations, etc.).
+   Tools execute in a loop (max 20 iterations) until the model stops
+   requesting them or sends a final text response.
+
+6. ${B}Response sent${X} — The reply is sent back to Discord, split into
+   chunks if over 1990 characters.
+
+${B}Security profile${X}
+
+- ${B}No data exfiltration${X} — workspace files (SOUL, IDENTITY, AGENTS,
+  MEMORY) are sent to the LLM provider as part of the prompt. Do not
+  put secrets in these files.
+- ${B}Token safety${X} — Discord token and API keys live in config.toml,
+  never sent to the LLM or exposed in responses.
+- ${B}Tool sandboxing${X} — file tools only read from the workspace directory.
+  The send_file tool reads workspace files and attaches them to messages.
+- ${B}No system commands${X} — the bot cannot run shell commands or access
+  your filesystem outside the workspace.
+- ${B}Rate limiting${X} — max 20 agent iterations per message prevents
+  runaway loops.
+
+${B}Config${X}
+config.toml lives at the project root. Onboard wizard: opoclaw onboard.
+Keys: discordToken, openrouterKey (or ollama/custom settings).
+Toggle: allowBots, enableReasoning, reasoningSummary.
+`);
+        break;
+
     case "help":
     case "--help":
     case "-h":
@@ -529,6 +583,7 @@ ${B}Commands:${X}
   service install    Install auto-start service (systemd/launchd)
   service remove     Remove auto-start service
   uninstall          Remove command, service, and clean up
+  explainer          How opoclaw works (security, config, data flow)
   migrate            Convert config.json → config.toml
   version            Print current version (git tag)
   help               Show this help
