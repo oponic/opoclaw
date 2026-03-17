@@ -1,6 +1,6 @@
 {
   "name": "opoclaw",
-  "module": "src/index.ts",
+  "module": "src/cli.ts",
   "type": "module",
   "private": true,
   "devDependencies": {

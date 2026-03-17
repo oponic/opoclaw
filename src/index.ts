@@ -13,8 +13,7 @@ import { runAgent, type Message as ChatMessage } from "./agent.ts";
 import { getFilePath } from "./workspace.ts";
 import { pendingFileSend, clearPendingFileSend } from "./tools.ts";
 
-import { loadConfig, getConfigPath } from "./config.ts";
-const config = loadConfig();
+import { loadConfig } from "./config.ts";
 
 const client = new Client({
     intents: [
@@ -72,6 +71,7 @@ async function buildChannelHistory(msg: Message): Promise<ChatMessage[]> {
 
 
 client.on(Events.MessageCreate, async (msg: Message) => {
+    const config = loadConfig();
     // Always ignore our own messages
     if (msg.author.id === client.user!.id) return;
 
@@ -231,4 +231,5 @@ client.once(Events.ClientReady, (c) => {
     console.log(`Logged in as ${c.user.tag}`);
 });
 
-await client.login(config.discordToken);
+const startupConfig = loadConfig();
+await client.login(startupConfig.discordToken);
