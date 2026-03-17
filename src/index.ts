@@ -131,10 +131,18 @@ client.on(Events.MessageCreate, async (msg: Message) => {
             onFirstToken
         );
 
-        // Prefix reasoning summary if it's a real summary (not fallback)
+        // Prefix reasoning summary only if it's a concise, real summary
         let finalResponse = responseText;
-        if (reasoningSummary && !reasoningSummary.includes("no summary") && !reasoningSummary.includes("failed")) {
-            finalResponse = `-${reasoningSummary}
+        const isReasoningMeta = reasoningSummary && (
+            reasoningSummary.length > 200 ||
+            reasoningSummary.includes("no summary") ||
+            reasoningSummary.includes("failed") ||
+            reasoningSummary.startsWith("The user") ||
+            reasoningSummary.startsWith("I need to") ||
+            reasoningSummary.startsWith("The assistant")
+        );
+        if (reasoningSummary && !isReasoningMeta) {
+            finalResponse = `#- ${reasoningSummary}
 ${responseText}`;
         }
 
