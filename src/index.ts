@@ -63,7 +63,9 @@ async function buildChannelHistory(msg: Message): Promise<ChatMessage[]> {
                 const lines = text.split("\n");
                 const summaryLine = lines[0].slice(3); // remove "-# "
                 const rest = lines.slice(1).join("\n").trim();
-                text = rest ? `<think>${summaryLine}</think>\n${rest}` : `<think>${summaryLine}</think>`;
+                const openTag = "<" + "think" + ">";
+                const closeTag = "<" + "/" + "think" + ">";
+                text = rest ? `${openTag}${summaryLine}${closeTag}\n${rest}` : `${openTag}${summaryLine}${closeTag}`;
             }
             history.push({ role: "assistant", content: text });
         } else {
