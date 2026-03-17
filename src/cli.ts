@@ -132,7 +132,7 @@ async function notifyUpdateDiscord(newVersion: string) {
     await fetch("https://discord.com/api/v10/channels/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bot ${config.discordToken}`,
+        Authorization: `Bot ${config.discord_token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ content: msg }),
@@ -520,7 +520,7 @@ opoclaw is a Discord bot framework. When someone mentions the bot:
 1. ${B}Message received${X} — Discord event triggers the MessageCreate handler.
    Only messages that @mention the bot (or reply to it) are processed.
    Own messages are always ignored. Other bots are ignored unless
-   allowBots=true in config.toml.
+   allow_bots=true in config.toml.
 
 2. ${B}System prompt loaded${X} — Three workspace files are read and composed:
    - SOUL.md — personality, tone, rules, vibe
@@ -559,8 +559,8 @@ ${B}Security profile${X}
 
 ${B}Config${X}
 config.toml lives at the project root. Onboard wizard: opoclaw onboard.
-Keys: discordToken, openrouterKey (or ollama/custom settings).
-Toggle: allowBots, enableReasoning, reasoningSummary.
+Keys: discord_token, openrouter_key (or ollama/custom settings).
+Toggle: allow_bots, enable_reasoning, reasoning_summary.
 `);
         break;
 

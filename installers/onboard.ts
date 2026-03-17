@@ -165,13 +165,13 @@ async function main() {
   const enableReasoning = enableReasoningAns.toLowerCase() !== "n";
 
   let reasoningSummary = false;
-  let reasoningSummaryModel = "";
+  let reasoning_summary_model = "";
   if (enableReasoning) {
     const summaryAns = await ask("Enable reasoning summaries? (y/N) [default: N, requires extra API call]: ");
     reasoningSummary = summaryAns.toLowerCase() === "y";
     if (reasoningSummary) {
       const summaryModel = await ask("Summary model (blank = main model): ");
-      reasoningSummaryModel = summaryModel || "";
+      reasoning_summary_model = summaryModel || "";
     }
   }
 
@@ -180,26 +180,26 @@ async function main() {
   header("Writing config");
 
   let toml = "";
-  toml += `discordToken = "${discordToken}"\n`;
-  toml += `openrouterKey = "${openrouterKey}"\n`;
-  toml += `openrouterModel = "${openrouterModel}"\n`;
-  toml += `allowBots = ${allowBots ? "true" : "false"}\n`;
-  toml += `enableReasoning = ${enableReasoning ? "true" : "false"}\n`;
-  toml += `reasoningSummary = ${reasoningSummary ? "true" : "false"}\n`;
-  if (reasoningSummaryModel) {
-    toml += \`reasoningSummaryModel = "\${reasoningSummaryModel}"\n\`;
+  toml += `discord_token = "${discordToken}"\n`;
+  toml += `openrouter_key = "${openrouterKey}"\n`;
+  toml += `openrouter_model = "${openrouterModel}"\n`;
+  toml += `allow_bots = ${allowBots ? "true" : "false"}\n`;
+  toml += `enable_reasoning = ${enableReasoning ? "true" : "false"}\n`;
+  toml += `reasoning_summary = ${reasoningSummary ? "true" : "false"}\n`;
+  if (reasoning_summary_model) {
+    toml += \`reasoning_summary_model = "\${reasoning_summary_model}"\n\`;
   }
   if (provider !== "openrouter") {
     toml += \`\nprovider = "\${provider}"\n\`;
   }
   if (provider === "ollama") {
     toml += \`\n[ollama]\n\`;
-    toml += \`baseURL = "\${ollamaBaseURL}"\n\`;
+    toml += \`base_url = "\${ollamaBaseURL}"\n\`;
     toml += \`model = "\${ollamaModel}"\n\`;
   } else if (provider === "custom") {
     toml += \`\n[custom]\n\`;
-    toml += \`baseURL = "\${customBaseURL}"\n\`;
-    toml += \`apiKey = "\${customAPIKey}"\n\`;
+    toml += \`base_url = "\${customBaseURL}"\n\`;
+    toml += \`api_key = "\${customAPIKey}"\n\`;
     toml += \`model = "\${customModel}"\n\`;
   }
 

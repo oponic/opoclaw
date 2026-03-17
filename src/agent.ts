@@ -97,7 +97,7 @@ async function streamCompletion(
     };
 
     // Add reasoning toggle
-    if (config.enableReasoning) {
+    if (config.enable_reasoning) {
         body.reasoning = { enabled: true };
     }
 
@@ -209,7 +209,7 @@ async function generateReasoningSummary(
     reasoningText: string,
     config: Config
 ): Promise<string> {
-    const model = config.reasoningSummaryModel || getModelId(config);
+    const model = config.reasoning_summary_model || getModelId(config);
     const baseUrl = getApiBaseUrl(config);
     const apiKey = getApiKey(config);
     const modelId = getModelId(config);
@@ -305,7 +305,7 @@ export async function runAgent(
 
         // Generate reasoning summary if enabled and we have reasoning text
         let reasoningSummaryText: string | undefined;
-        if (config.reasoningSummary && config.enableReasoning && result.reasoning) {
+        if (config.reasoning_summary && config.enable_reasoning && result.reasoning) {
             reasoningSummaryText = await generateReasoningSummary(
                 result.reasoning,
                 config

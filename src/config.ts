@@ -87,19 +87,19 @@ export function formatTOMLValue(value: any): string {
 // ── Config interface ───────────────────────────────────────────────────────
 
 export interface OpoclawConfig {
-    discordToken: string;
-    openrouterKey?: string;
-    openrouterModel?: string;
+    discord_token: string;
+    openrouter_key?: string;
+    openrouter_model?: string;
     // Ollama (local models)
     provider?: "openrouter" | "ollama" | "custom";
-    ollama?: { baseURL?: string; model?: string };
-    custom?: { baseURL?: string; apiKey?: string; model?: string };
+    ollama?: { base_url?: string; model?: string };
+    custom?: { base_url?: string; api_key?: string; model?: string };
     // General
-    allowBots?: boolean;
-    enableReasoning?: boolean;
-    reasoningSummary?: boolean;
-    reasoningSummaryModel?: string;
-    notifyChannel?: string;
+    allow_bots?: boolean;
+    enable_reasoning?: boolean;
+    reasoning_summary?: boolean;
+    reasoning_summary_model?: string;
+    notify_channel?: string;
 }
 
 export function loadConfig(): OpoclawConfig {
@@ -115,19 +115,19 @@ export function getConfigPath(): string {
 }
 
 export function getApiBaseUrl(config: OpoclawConfig): string {
-    if (config.provider === "custom") return config.custom?.baseURL || "http://localhost:11434";
-    if (config.provider === "ollama") return config.ollama?.baseURL || "http://localhost:11434";
+    if (config.provider === "custom") return config.custom?.base_url || "http://localhost:11434";
+    if (config.provider === "ollama") return config.ollama?.base_url || "http://localhost:11434";
     return "https://openrouter.ai";
 }
 
 export function getApiKey(config: OpoclawConfig): string {
-    if (config.provider === "custom") return config.custom?.apiKey || "";
+    if (config.provider === "custom") return config.custom?.api_key || "";
     if (config.provider === "ollama") return "";
-    return config.openrouterKey || "";
+    return config.openrouter_key || "";
 }
 
 export function getModelId(config: OpoclawConfig): string {
     if (config.provider === "custom") return config.custom?.model || "unknown";
     if (config.provider === "ollama") return config.ollama?.model || "llama3.2";
-    return config.openrouterModel || "openrouter/auto";
+    return config.openrouter_model || "openrouter/auto";
 }
