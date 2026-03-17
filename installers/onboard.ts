@@ -187,20 +187,20 @@ async function main() {
   toml += `enable_reasoning = ${enableReasoning ? "true" : "false"}\n`;
   toml += `reasoning_summary = ${reasoningSummary ? "true" : "false"}\n`;
   if (reasoning_summary_model) {
-    toml += \`reasoning_summary_model = "\${reasoning_summary_model}"\n\`;
+    toml += `reasoning_summary_model = "\${reasoning_summary_model}"\n`;
   }
   if (provider !== "openrouter") {
-    toml += \`\nprovider = "\${provider}"\n\`;
+    toml += `\nprovider = "\${provider}"\n`;
   }
   if (provider === "ollama") {
-    toml += \`\n[ollama]\n\`;
-    toml += \`base_url = "\${ollamaBaseURL}"\n\`;
-    toml += \`model = "\${ollamaModel}"\n\`;
+    toml += `\n[ollama]\n`;
+    toml += `base_url = "\${ollamaBaseURL}"\n`;
+    toml += `model = "\${ollamaModel}"\n`;
   } else if (provider === "custom") {
-    toml += \`\n[custom]\n\`;
-    toml += \`base_url = "\${customBaseURL}"\n\`;
-    toml += \`api_key = "\${customAPIKey}"\n\`;
-    toml += \`model = "\${customModel}"\n\`;
+    toml += `\n[custom]\n`;
+    toml += `base_url = "\${customBaseURL}"\n`;
+    toml += `api_key = "\${customAPIKey}"\n`;
+    toml += `model = "\${customModel}"\n`;
   }
 
   writeFileSync(CONFIG_FILE, toml);
