@@ -133,8 +133,13 @@ client.on(Events.MessageCreate, async (msg: Message) => {
 
         // Prefix reasoning summary if it's a real summary (not fallback)
         let finalResponse = responseText;
-        if (reasoningSummary && !reasoningSummary.includes("no summary") && !reasoningSummary.includes("failed")) {
-            finalResponse = `-${reasoningSummary}
+        if (reasoningSummary && reasoningSummary.length < 200 &&
+            !reasoningSummary.includes("no summary") &&
+            !reasoningSummary.includes("failed") &&
+            !reasoningSummary.startsWith("The user") &&
+            !reasoningSummary.startsWith("I need to") &&
+            !reasoningSummary.startsWith("The assistant")) {
+            finalResponse = `-# ${reasoningSummary}
 ${responseText}`;
         }
 
