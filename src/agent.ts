@@ -275,10 +275,10 @@ export async function runAgent(
                 let result: string;
                 try {
                     const args = JSON.parse(tc.function.arguments);
-                    result = await handleToolCall(tc.function.name, args, config);
                     if (onToolCall) {
                         onToolCall(tc);
                     }
+                    result = await handleToolCall(tc.function.name, args, config);
                 } catch (e: any) {
                     result = `Error: ${e.message}`;
                 }
