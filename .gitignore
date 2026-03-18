@@ -7,3 +7,4 @@ config.json.bak
 config.toml
 usage.json
 workspace/
+cache/

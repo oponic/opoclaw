@@ -13,7 +13,7 @@ import { runAgent, type Message as ChatMessage, type ToolCall } from "./agent.ts
 import { getFilePath } from "./workspace.ts";
 import { pendingFileSend, clearPendingFileSend } from "./tools.ts";
 
-import { loadConfig } from "./config.ts";
+import { getSemanticSearchEnabled, loadConfig } from "./config.ts";
 
 const client = new Client({
     intents: [
@@ -96,17 +96,22 @@ client.on(Events.MessageCreate, async (msg: Message) => {
 
     await addReaction(msg, EYES);
 
-    const [agentsContent, soulContent, identityContent, history] = await Promise.all([
+    const [agentsContent, soulContent, identityContent, memoryContent, history] = await Promise.all([
         readFileAsync("AGENTS.md").catch(() => ""),
         readFileAsync("SOUL.md").catch(() => ""),
         readFileAsync("IDENTITY.md").catch(() => ""),
+        readFileAsync("MEMORY.md").catch(() => ""),
         buildChannelHistory(msg),
     ]);
 
     const systemPromptParts: string[] = [];
     if (soulContent) systemPromptParts.push(soulContent);
-    if (identityContent) systemPromptParts.push("\n## Your Identity\n" + identityContent);
+    if (identityContent) systemPromptParts.push("\n## Your Identity\nThis is your IDENTITY.md.\n```\n" + identityContent + "\n```");
     if (agentsContent) systemPromptParts.push("\n## Operating Instructions\n" + agentsContent);
+    if (memoryContent) systemPromptParts.push("\n## Memory\nThis is your MEMORY.md. You can edit that file, but be careful not to accidentally erase information in it.\n```\n" + memoryContent + "\n```");
+    if (getSemanticSearchEnabled(config)) {
+        systemPromptParts.push("\n## Semantic Search\nYou have access to a semantic search command in your shell. Use `semantic-search <query>` and it'll return lines in any file that match embeddings. You don't need to worry about gaming this, remember it's semantic and not keyword based, so even just a description of what you're looking for can work. The command caches efficiently as well.");
+    }
     const systemPrompt = systemPromptParts.join("\n") || "You are a helpful assistant.";
 
     const userText = msg.content.replace(/<@!?\d+>/g, "").trim();
@@ -121,10 +126,11 @@ client.on(Events.MessageCreate, async (msg: Message) => {
     const onFirstToken = async () => {
         if (swappedToThinking) return;
         swappedToThinking = true;
-        await removeReaction(msg, EYES);
-        await addReaction(msg, THINKING);
+        addReaction(msg, THINKING);
+        removeReaction(msg, EYES);
     };
-    const onToolCall = async (call: ToolCall) => {
+    const toolMessages: { [id: string]: Message } = {};
+    const onToolCall = async (call: ToolCall, uniqueId: string) => {
         if (!gotToolCall) {
             await addReaction(msg, TOOL);
             gotToolCall = true;
@@ -140,11 +146,24 @@ client.on(Events.MessageCreate, async (msg: Message) => {
 
             const lines = args.shell_command.split('\n');
             if (call.function.name === 'shell' && args.shell_command && args.description) {
-                fullText = '-# 🔧  ' + args.description + '  •  `' + lines[0] + (lines.length > 1 ? '…' : '') + '`';
+                let line = lines[0];
+                if (line.length > 50) {
+                    line = line.slice(0, 50) + '…';
+                } else if (lines.length > 1) {
+                    line += '…';
+                }
+                fullText = '-# 🔧  ' + args.description + '  •  `' + line + '`';
             }
         } catch {
         }
-        (msg.channel as TextChannel).send(fullText);
+        const m = await (msg.channel as TextChannel).send(fullText);
+        toolMessages[uniqueId] = m;
+    };
+    const onToolCallError = async (uniqueId: string, error: Error) => {
+        const m = toolMessages[uniqueId];
+        if (m) {
+            await m.edit(m.content + `  •  🛑 Error: ${error.message}`);
+        }
     };
 
     try {
@@ -154,6 +173,7 @@ client.on(Events.MessageCreate, async (msg: Message) => {
             config,
             onFirstToken,
             onToolCall,
+            onToolCallError,
         );
 
         // Prefix reasoning summary if it's a real summary (not fallback)

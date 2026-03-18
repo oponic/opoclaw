@@ -236,7 +236,8 @@ export async function runAgent(
     systemPrompt: string,
     config: OpoclawConfig,
     onFirstToken: () => void,
-    onToolCall: (call: ToolCall) => void
+    onToolCall: (call: ToolCall, uniqueId: string) => void,
+    onToolCallError: (uniqueId: string, error: Error) => void
 ): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
     const messages: Message[] = [
         { role: "system", content: systemPrompt },
@@ -273,14 +274,18 @@ export async function runAgent(
 
             for (const tc of toolCalls) {
                 let result: string;
+                let uniqueId = Math.random().toString(36).substring(2, 10);
                 try {
                     const args = JSON.parse(tc.function.arguments);
                     if (onToolCall) {
-                        onToolCall(tc);
+                        onToolCall(tc, uniqueId);
                     }
                     result = await handleToolCall(tc.function.name, args, config);
                 } catch (e: any) {
-                    result = `Error: ${e.message}`;
+                    if (onToolCallError) {
+                        onToolCallError(uniqueId, e);
+                    }
+                    result = `Error: ${e.toString()}`;
                 }
                 messages.push({
                     role: "tool",
