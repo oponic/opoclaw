@@ -8,3 +8,4 @@ config.toml
 usage.json
 workspace/
 cache/
+.gateway.lock

@@ -280,7 +280,12 @@ export async function runAgent(
                     if (onToolCall) {
                         onToolCall(tc, uniqueId);
                     }
-                    result = await handleToolCall(tc.function.name, args, config);
+                    result = await handleToolCall(tc.function.name, args, config).catch((e) => {
+                        if (onToolCallError) {
+                            onToolCallError(uniqueId, e);
+                        }
+                        return `Error: ${e.toString()}`;
+                    });
                 } catch (e: any) {
                     if (onToolCallError) {
                         onToolCallError(uniqueId, e);
