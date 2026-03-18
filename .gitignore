@@ -2,7 +2,7 @@ config.json
 node_modules/
 bun.lock
 .DS_Store
-workspace/config.toml
+workspace/
 config.json.bak
 config.toml
 usage.json
