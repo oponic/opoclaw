@@ -103,6 +103,7 @@ export interface OpoclawConfig {
     basic_tools?: boolean;
     ollama_semantic_search?: boolean;
     use_toml_files?: boolean;
+    authorized_user_id?: string;
 }
 
 export function loadConfig(): OpoclawConfig {

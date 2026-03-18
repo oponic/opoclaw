@@ -194,6 +194,10 @@ async function main() {
     const allowBotsAns = await ask("Allow bot-to-bot responses? (y/N): ");
     const allowBots = allowBotsAns.toLowerCase() === "y";
 
+    // ── Authorized User ───────────────────────────────────────────────────
+
+    const authorizedUserId = await ask("Authorized user ID for approvals (blank to skip): ");
+
     // ── Reasoning ──────────────────────────────────────────────────────────
 
     const enableReasoningAns = await ask("Enable model reasoning? (Y/n): ");
@@ -228,6 +232,9 @@ async function main() {
     toml += `reasoning_summary = ${reasoningSummary ? "true" : "false"}\n`;
     if (reasoningSummaryModel) {
         toml += `reasoningSummaryModel = "\${reasoningSummaryModel}"\n`;
+    }
+    if (authorizedUserId) {
+        toml += `authorized_user_id = "${authorizedUserId}"\n`;
     }
     toml += `use_toml_files = ${enableToml ? "true" : "false"}\n`;
     toml += `basic_tools = ${basicTools ? "true" : "false"}\n`;

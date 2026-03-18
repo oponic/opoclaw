@@ -229,6 +229,14 @@ client.on(Events.MessageCreate, async (msg: Message) => {
             return { approved: true };
         }
 
+        const authorizedUserId = config.authorized_user_id?.trim();
+        if (!authorizedUserId) {
+            await (msg.channel as TextChannel).send(
+                "-# Permission denied: `authorized_user_id` is not set in config.toml."
+            );
+            return { approved: false, message: "Not authorized to make this decision." };
+        }
+
         const channel = msg.channel as TextChannel;
         const notice = await channel.send("-# Requesting permission...");
 
@@ -259,16 +267,28 @@ client.on(Events.MessageCreate, async (msg: Message) => {
         const prompt = await channel.send({ embeds: [embed], components: [row] });
 
         let approved = false;
-        try {
-            const interaction = await prompt.awaitMessageComponent({
-                componentType: ComponentType.Button,
-                time: APPROVAL_TIMEOUT_MS,
-                filter: (i) => i.user.id === msg.author.id,
-            });
-            approved = interaction.customId.endsWith(":yes");
-            await interaction.deferUpdate();
-        } catch {
-            approved = false;
+        const expiresAt = Date.now() + APPROVAL_TIMEOUT_MS;
+        while (Date.now() < expiresAt) {
+            const remaining = expiresAt - Date.now();
+            try {
+                const interaction = await prompt.awaitMessageComponent({
+                    componentType: ComponentType.Button,
+                    time: remaining,
+                });
+                if (interaction.user.id !== authorizedUserId) {
+                    await interaction.reply({
+                        content: "You are not authorized to approve this action.",
+                        ephemeral: true,
+                    });
+                    continue;
+                }
+                approved = interaction.customId.endsWith(":yes");
+                await interaction.deferUpdate();
+                break;
+            } catch {
+                approved = false;
+                break;
+            }
         }
 
         const finalEmbed = EmbedBuilder.from(embed)
