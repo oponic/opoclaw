@@ -111,6 +111,7 @@ export interface OpoclawConfig {
     ollama_semantic_search?: boolean;
     use_toml_files?: boolean;
     authorized_user_id?: string;
+    exposed_commands?: string[];
 }
 
 export function loadConfig(): OpoclawConfig {
@@ -167,4 +168,8 @@ export function getSemanticSearchEnabled(config: OpoclawConfig): boolean {
 
 export function useTomlFiles(config: OpoclawConfig): boolean {
     return config.use_toml_files ?? false;
+}
+
+export function getExposedCommands(config: OpoclawConfig): string[] {
+    return config.exposed_commands || [];
 }

@@ -325,7 +325,7 @@ const shell = new WasmShell();
 
 import path from "path";
 import { mkdir, readdir, readFile, writeFile, rm, stat as fsStat } from "fs/promises";
-import { getConfigPath, getSemanticSearchEnabled, parseTOML, toTOML, type OpoclawConfig } from "./config.ts";
+import { getConfigPath, getExposedCommands, getSemanticSearchEnabled, parseTOML, toTOML, type OpoclawConfig } from "./config.ts";
 const toReal = (rel: string) => path.join(WORKSPACE_DIR, rel);
 
 shell.mount("/home/", {
@@ -432,6 +432,10 @@ function coerceConfigValue(raw: string): any {
     return raw;
 }
 
+import { exec } from "child_process";
+
+const enc = new TextEncoder();
+
 export async function handleToolCall(
     name: string,
     args: Record<string, string>,
@@ -520,7 +524,6 @@ export async function handleToolCall(
             if (!shellSetUp) {
                 shellSetUp = true;
                 if (getSemanticSearchEnabled(config)) {
-                    const enc = new TextEncoder();
                     shell.addProgram('semantic-search', async (ctx) => {
                         const query = ctx.args.slice(1).join(' ').trim();
                         if (!query || query === '--help') {
@@ -533,6 +536,26 @@ export async function handleToolCall(
                             : '(no results)\n';
                         await ctx.writeStdout(enc.encode(out));
                         return 0;
+                    });
+                }
+
+                const commands = getExposedCommands(config);
+                for (const cmd of commands) {
+                    shell.addProgram(cmd, async (ctx) => {
+                        const args = ctx.args.slice(1);
+                        // run that with `exec`
+                        return new Promise((resolve) => {
+                            const c = `${cmd} ${args.join(" ")}`;
+                            exec(c, (error, stdout, stderr) => {
+                                if (stderr.trim().length > 0) {
+                                    ctx.writeStderr(enc.encode(stderr.trim() + "\n"));
+                                }
+                                if (stdout.trim().length > 0) {
+                                    ctx.writeStdout(enc.encode(stdout.trim() + "\n"));
+                                }
+                                resolve(0);
+                            });
+                        });
                     });
                 }
             }
