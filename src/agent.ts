@@ -34,7 +34,14 @@ interface UsageStats {
     }>;
 }
 
-const USAGE_FILE = fileURLToPath(new URL("../usage.json", import.meta.url));
+function normalizeWindowsPath(p: string): string {
+    if (process.platform === "win32" && /^\/[A-Za-z]:\//.test(p)) {
+        return p.slice(1);
+    }
+    return p;
+}
+
+const USAGE_FILE = normalizeWindowsPath(fileURLToPath(new URL("../usage.json", import.meta.url)));
 
 function isAnthropicCustom(config: OpoclawConfig): boolean {
     return config.provider === "custom" && config.custom?.api_type === "anthropic";
