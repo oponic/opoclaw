@@ -14,7 +14,7 @@ import {
     ComponentType,
 } from "discord.js";
 import { resolve } from "path";
-import { unlink } from "fs/promises";
+import { unlink, readFile as readFileFs } from "fs/promises";
 import { readFileAsync } from "./workspace.ts";
 import { runAgent, type Message as ChatMessage, type ToolCall } from "./agent.ts";
 import { getFilePath } from "./workspace.ts";
@@ -39,6 +39,7 @@ const APPROVAL_TIMEOUT_MS = 60_000;
 const UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const OP_DIR = resolve(import.meta.dir, "..");
 const HIBERNATE_FILE = resolve(OP_DIR, ".gateway.hibernate");
+const SYSTEM_PROMPT_FILE = resolve(import.meta.dir, "SYSTEM.md");
 const dec = new TextDecoder();
 let lastUpdateCheck = 0;
 let cachedUpdateTag: string | null = null;
@@ -97,6 +98,35 @@ function pickLatestTag(tags: string[], channel: "stable" | "unstable"): string |
         if (isStableTag(tag)) return tag;
     }
     return null;
+}
+
+async function loadSystemPromptBase(): Promise<string> {
+    try {
+        return await readFileFs(SYSTEM_PROMPT_FILE, "utf-8");
+    } catch {
+        return "";
+    }
+}
+
+function renderSystemPrompt(template: string): string {
+    const now = new Date();
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const date = now.toLocaleDateString("en-US", {
+        timeZone: tz,
+        year: "numeric",
+        month: "long",
+        day: "2-digit",
+    });
+    const time = now.toLocaleTimeString("en-US", {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    });
+    return template
+        .replaceAll("{{DATE}}", date)
+        .replaceAll("{{TIME}}", time)
+        .replaceAll("{{TIMEZONE}}", tz);
 }
 
 async function isHibernating(): Promise<boolean> {
@@ -244,7 +274,8 @@ client.on(Events.MessageCreate, async (msg: Message) => {
 
     const useToml = useTomlFiles(config);
 
-    const [agentsContent, soulContent, identityContent, memoryContent, history] = await Promise.all([
+    const [systemBase, agentsContent, soulContent, identityContent, memoryContent, history] = await Promise.all([
+        loadSystemPromptBase(),
         readFileAsync(useToml ? 'agents.toml' : 'AGENTS.md').catch(() => ""),
         readFileAsync(useToml ? 'soul.toml' : 'SOUL.md').catch(() => ""),
         readFileAsync(useToml ? 'identity.toml' : 'IDENTITY.md').catch(() => ""),
@@ -253,6 +284,7 @@ client.on(Events.MessageCreate, async (msg: Message) => {
     ]);
 
     const systemPromptParts: string[] = [];
+    if (systemBase) systemPromptParts.push(renderSystemPrompt(systemBase));
     if (soulContent) systemPromptParts.push(soulContent);
     if (identityContent) systemPromptParts.push("\n## Your Identity\nThis is your " + (useToml ? "identity.toml" : "IDENTITY.md") + ".\n```\n" + identityContent + "\n```");
     if (agentsContent) systemPromptParts.push("\n## Operating Instructions\n" + agentsContent);
