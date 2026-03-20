@@ -535,6 +535,9 @@ async function searxSearch(query: string, count = 5): Promise<string> {
 }
 
 async function pythonDuckDuckGoSearch(query: string, count = 5): Promise<string> {
+    if (process.env.OPOCLAW_SEARCH_NO_PYTHON) {
+        return "(no results)";
+    }
     const scriptPath = path.resolve(import.meta.dir, "duckduckgo.py");
     const proc = Bun.spawn({
         cmd: ["python3", scriptPath, query, String(count)],

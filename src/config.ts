@@ -2,7 +2,11 @@ import { resolve } from "path";
 import { existsSync, readFileSync } from "fs";
 import { TOOLS } from "./tools";
 
-const CONFIG_FILE = resolve(import.meta.dir, "../config.toml");
+const DEFAULT_CONFIG_FILE = resolve(import.meta.dir, "../config.toml");
+
+function getConfigFilePath(): string {
+    return process.env.OPOCLAW_CONFIG_PATH || DEFAULT_CONFIG_FILE;
+}
 
 // ── Minimal TOML parser (for our config format) ────────────────────────────
 
@@ -155,15 +159,16 @@ export interface OpoclawConfig {
 }
 
 export function loadConfig(): OpoclawConfig {
-    if (!existsSync(CONFIG_FILE)) {
-        throw new Error(`config.toml not found at ${CONFIG_FILE}`);
+    const configPath = getConfigFilePath();
+    if (!existsSync(configPath)) {
+        throw new Error(`config.toml not found at ${configPath}`);
     }
-    const text = readFileSync(CONFIG_FILE, "utf-8");
+    const text = readFileSync(configPath, "utf-8");
     return parseTOML(text) as unknown as OpoclawConfig;
 }
 
 export function getConfigPath(): string {
-    return CONFIG_FILE;
+    return getConfigFilePath();
 }
 
 export function getApiBaseUrl(config: OpoclawConfig): string {
