@@ -238,31 +238,33 @@ async function main() {
     header("Writing config");
 
     let toml = "";
-    toml += `discord_token = "${discordToken}"\n`;
-    toml += `openrouter_key = "${openrouterKey}"\n`;
-    toml += `openrouter_model = "${openrouterModel}"\n`;
-    toml += `allow_bots = ${allowBots ? "true" : "false"}\n`;
     toml += `enable_reasoning = ${enableReasoning ? "true" : "false"}\n`;
     toml += `reasoning_summary = ${reasoningSummary ? "true" : "false"}\n`;
     if (reasoningSummaryModel) {
-        toml += `reasoningSummaryModel = "\${reasoningSummaryModel}"\n`;
+        toml += `reasoning_summary_model = "\${reasoningSummaryModel}"\n`;
     }
     if (authorizedUserId) {
         toml += `authorized_user_id = "${authorizedUserId}"\n`;
     }
     toml += `use_toml_files = ${enableToml ? "true" : "false"}\n`;
     toml += `basic_tools = ${basicTools ? "true" : "false"}\n`;
+    toml += `\n[channel.discord]\n`;
+    toml += `enabled = true\n`;
+    toml += `token = "${discordToken}"\n`;
+    toml += `allow_bots = ${allowBots ? "true" : "false"}\n`;
+    toml += `\n[provider]\n`;
+    toml += `active = "${provider}"\n`;
+    toml += `\n[provider.openrouter]\n`;
+    toml += `api_key = "${openrouterKey}"\n`;
+    toml += `model = "${openrouterModel}"\n`;
 
     // Provider config (nested sections)
-    if (provider !== "openrouter") {
-        toml += '\nprovider = "' + provider + '"\n';
-    }
     if (provider === "ollama") {
-        toml += '\n[ollama]\n';
+        toml += '\n[provider.ollama]\n';
         toml += 'base_url = "' + ollamaBaseURL + '"\n';
         toml += 'model = "' + ollamaModel + '"\n';
     } else if (provider === "custom") {
-        toml += '\n[custom]\n';
+        toml += '\n[provider.custom]\n';
         toml += 'base_url = "' + customBaseURL + '"\n';
         toml += 'api_key = "' + customAPIKey + '"\n';
         toml += 'model = "' + customModel + '"\n';

@@ -87,7 +87,7 @@ export const TOOLS: { [id: string]: any } = {
                 properties: {
                     key: {
                         type: "string",
-                        description: "Config key to update. Use dot notation for sections (e.g. 'ollama.base_url').",
+                        description: "Config key to update. Use dot notation for sections (e.g. 'provider.ollama.base_url').",
                     },
                     value: {
                         type: "string",
@@ -277,7 +277,7 @@ async function getCachedFileEmbeddings(
 }
 
 async function semanticSearch(query: string, config: OpoclawConfig): Promise<string[]> {
-    const ollamaBaseUrl = config.ollama?.base_url ?? "http://localhost:11434";
+    const ollamaBaseUrl = config.provider?.ollama?.base_url ?? "http://localhost:11434";
     const embedModel = "nomic-embed-text";
     const ollama = new Ollama({ host: ollamaBaseUrl });
 

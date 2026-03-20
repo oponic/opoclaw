@@ -178,7 +178,7 @@ async function notifyUpdateDiscord(newVersion: string) {
     await fetch("https://discord.com/api/v10/channels/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bot ${config.discord_token}`,
+        Authorization: `Bot ${config.channel?.discord?.token || ""}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ content: msg }),
@@ -611,6 +611,65 @@ function migrateToSnakeCase() {
   ok("Migrated camelCase → snake_case. Backup at config.toml.bak");
 }
 
+function migrateToSectionedConfig() {
+  const tomlPath = resolve(OP_DIR, "config.toml");
+  if (!existsSync(tomlPath)) {
+    warn("No config.toml found — nothing to migrate.");
+    return;
+  }
+
+  const raw = readFileSync(tomlPath, "utf-8");
+  const parsed = parseTOML(raw);
+
+  const alreadySectioned =
+    typeof parsed?.channel === "object" ||
+    typeof parsed?.provider === "object";
+  if (alreadySectioned) {
+    ok("Config.toml already uses sectioned channel/provider layout.");
+    return;
+  }
+
+  const next: any = { ...parsed };
+
+  const discordToken = parsed.discord_token;
+  const allowBots = parsed.allow_bots;
+  const notifyChannel = parsed.notify_channel;
+
+  const providerActive = parsed.provider || "openrouter";
+
+  next.channel = next.channel || {};
+  next.channel.discord = {
+    enabled: true,
+    token: discordToken,
+    allow_bots: allowBots,
+    notify_channel: notifyChannel,
+  };
+
+  next.provider = {
+    active: providerActive,
+    openrouter: {
+      api_key: parsed.openrouter_key,
+      model: parsed.openrouter_model,
+    },
+    ollama: parsed.ollama,
+    custom: parsed.custom,
+  };
+
+  // Remove old flat keys
+  delete next.discord_token;
+  delete next.allow_bots;
+  delete next.notify_channel;
+  delete next.openrouter_key;
+  delete next.openrouter_model;
+  delete next.ollama;
+  delete next.custom;
+
+  const backupPath = tomlPath + ".sectioned.bak";
+  writeFileSync(backupPath, raw);
+  writeFileSync(tomlPath, toTOML(next));
+  ok("Migrated to sectioned [channel.*] and [provider.*]. Backup at config.toml.sectioned.bak");
+}
+
 // ── CLI Router ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -661,6 +720,11 @@ async function main() {
     case "migrate":
       migrate();
       migrateToSnakeCase();
+      migrateToSectionedConfig();
+      break;
+
+    case "onboard":
+      exec("bun run installers/onboard.ts", { cwd: OP_DIR });
       break;
 
     case "version":
@@ -683,7 +747,7 @@ opoclaw is a Discord bot framework. When someone mentions the bot:
 1. ${B}Message received${X} — Discord event triggers the MessageCreate handler.
    Only messages that @mention the bot (or reply to it) are processed.
    Own messages are always ignored. Other bots are ignored unless
-   allow_bots=true in config.toml.
+   channel.discord.allow_bots=true in config.toml.
 
 2. ${B}System prompt loaded${X} — Three workspace files are read and composed:
    - SOUL.md — personality, tone, rules, vibe
@@ -722,8 +786,8 @@ ${B}Security profile${X}
 
 ${B}Config${X}
 config.toml lives at the project root. Onboard wizard: opoclaw onboard.
-Keys: discord_token, openrouter_key (or ollama/custom settings).
-Toggle: allow_bots, enable_reasoning, reasoning_summary.
+Channels live under [channel.*]. Providers live under [provider.*].
+Toggle: channel.discord.allow_bots, enable_reasoning, reasoning_summary.
 `);
       break;
 
@@ -748,7 +812,8 @@ ${B}Commands:${X}
   service remove     Remove auto-start service
   uninstall          Remove command, service, and clean up
   explainer          How opoclaw works
-  migrate            Upgrade config (JSON→TOML, camelCase→snake_case)
+  migrate            Upgrade config (JSON→TOML, camelCase→snake_case, sections)
+  onboard            Run onboarding wizard
   version            Print current version (git tag)
   help               Show this help
 

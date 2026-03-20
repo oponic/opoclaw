@@ -44,7 +44,7 @@ function normalizeWindowsPath(p: string): string {
 const USAGE_FILE = normalizeWindowsPath(fileURLToPath(new URL("../usage.json", import.meta.url)));
 
 function isAnthropicCustom(config: OpoclawConfig): boolean {
-    return config.provider === "custom" && config.custom?.api_type === "anthropic";
+    return config.provider?.active === "custom" && config.provider?.custom?.api_type === "anthropic";
 }
 
 function buildAnthropicMessages(messages: Message[]): { system: string; messages: any[] } {
@@ -166,7 +166,7 @@ async function streamCompletion(
             model: getModelId(config),
             system,
             messages: anthroMessages,
-            max_tokens: config.custom?.max_tokens ?? 1024,
+            max_tokens: config.provider?.custom?.max_tokens ?? 1024,
         };
         if (tools.length > 0) {
             body.tools = tools;
@@ -177,7 +177,7 @@ async function streamCompletion(
             method: "POST",
             headers: {
                 "x-api-key": getApiKey(config),
-                "anthropic-version": config.custom?.anthropic_version || "2023-06-01",
+                "anthropic-version": config.provider?.custom?.anthropic_version || "2023-06-01",
                 "Content-Type": "application/json",
             },
             body: JSON.stringify(body),
