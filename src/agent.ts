@@ -1,6 +1,6 @@
 import { handleToolCall } from "./tools.ts";
 import { getApiBaseUrl, getApiKey, getModelId, getTools, type OpoclawConfig } from "./config.ts";
-import { dirname } from "path";
+import { dirname, join } from "path";
 import { mkdir } from "fs/promises";
 import { fileURLToPath } from "url";
 
@@ -41,7 +41,19 @@ function normalizeWindowsPath(p: string): string {
     return p;
 }
 
-const USAGE_FILE = normalizeWindowsPath(fileURLToPath(new URL("../usage.json", import.meta.url)));
+function getUsageFilePath(): string {
+  const rawPath = normalizeWindowsPath(fileURLToPath(new URL("../usage.json", import.meta.url)));
+  const dir = dirname(rawPath);
+  // If the directory is root, use a subdirectory instead
+  if (dir === "/" || /^[A-Za-z]:\\$/.test(dir) || dir === ".") {
+    // Fallback to a data directory inside the project
+    const fallback = join(dirname(rawPath), "data", "usage.json");
+    return fallback;
+  }
+  return rawPath;
+}
+
+const USAGE_FILE = getUsageFilePath();
 
 function isAnthropicCustom(config: OpoclawConfig): boolean {
     return config.provider?.active === "custom" && config.provider?.custom?.api_type === "anthropic";
@@ -120,8 +132,18 @@ async function loadUsage(): Promise<UsageStats> {
 }
 
 async function saveUsage(stats: UsageStats): Promise<void> {
-    await mkdir(dirname(USAGE_FILE), { recursive: true });
-    await Bun.write(USAGE_FILE, JSON.stringify(stats, null, 2));
+    try {
+        await mkdir(dirname(USAGE_FILE), { recursive: true });
+    } catch (err) {
+        // If we can't create directory (e.g., permission denied), log warning and continue
+        console.warn(`Could not create directory for usage file: ${err}`);
+    }
+    try {
+        await Bun.write(USAGE_FILE, JSON.stringify(stats, null, 2));
+    } catch (err) {
+        // If writing fails, log warning but don't throw (usage tracking is non-critical)
+        console.warn(`Could not write usage file: ${err}`);
+    }
 }
 
 async function recordUsage(usage: any, model: string): Promise<void> {

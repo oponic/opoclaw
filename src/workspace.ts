@@ -53,7 +53,8 @@ export async function listFiles(): Promise<string[]> {
   const glob = new Bun.Glob("**/*");
   const files: string[] = [];
   for await (const file of glob.scan({ cwd: WORKSPACE_DIR, onlyFiles: true })) {
-    files.push(file);
+    // Normalize path separators to forward slashes for cross-platform consistency
+    files.push(file.replace(/\\/g, '/'));
   }
   return files.sort();
 }
