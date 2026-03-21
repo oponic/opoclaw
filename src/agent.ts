@@ -1,5 +1,5 @@
 import { handleToolCall } from "./tools.ts";
-import { getApiBaseUrl, getApiKey, getModelId, getTools, type OpoclawConfig } from "./config.ts";
+import { getApiBaseUrl, getApiKey, getModelId, getTools, getActiveProvider, type OpoclawConfig } from "./config.ts";
 import { dirname, join } from "path";
 import { mkdir } from "fs/promises";
 import { fileURLToPath } from "url";
@@ -248,8 +248,8 @@ async function streamCompletion(
         stream: true,
     };
 
-    // Add reasoning toggle
-    if (config.enable_reasoning) {
+    // Add reasoning toggle (only supported by OpenRouter)
+    if (config.enable_reasoning && getActiveProvider(config) === "openrouter") {
         body.reasoning = { enabled: true };
     }
 
