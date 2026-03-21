@@ -29,7 +29,9 @@ describe("workspace", () => {
   test("listFiles includes files", async () => {
     await setup();
     const files = await listFiles();
-    expect(files).toContain("__test__/a.txt");
+    // Normalize path separators to forward slashes for comparison
+    const normalizedFiles = files.map(f => f.replace(/\\/g, '/'));
+    expect(normalizedFiles).toContain("__test__/a.txt");
     await cleanup();
   });
 

@@ -32,7 +32,9 @@ describe("tools", () => {
   test("list_files returns entries", async () => {
     await setup();
     const res = await handleToolCall("list_files", {}, {} as any);
-    expect(res).toContain("__tools_test__/a.txt");
+    // Normalize path separators to forward slashes for comparison
+    const normalizedRes = res.replace(/\\/g, '/');
+    expect(normalizedRes).toContain("__tools_test__/a.txt");
     await cleanup();
   });
 
