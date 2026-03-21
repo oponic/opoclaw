@@ -31,6 +31,9 @@ const client = new Client({
         GatewayIntentBits.GuildMessageReactions,
     ],
 });
+client.on('debug', (msg) => console.log(`[Discord debug] ${msg}`));
+client.on('warn', (msg) => console.warn(`[Discord warn] ${msg}`));
+client.on('error', (err) => console.error(`[Discord error] ${err.message}`));
 
 const EYES = "👀";
 const THINKING = "🤔";
