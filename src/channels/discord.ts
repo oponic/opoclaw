@@ -20,7 +20,7 @@ import { runAgent, type Message as ChatMessage, type ToolCall } from "../agent.t
 import { getFilePath } from "../workspace.ts";
 import { pendingFileSend, clearPendingFileSend } from "../tools.ts";
 
-import { getSemanticSearchEnabled, loadConfig, useTomlFiles } from "../config.ts";
+import { getSemanticSearchEnabled, loadConfig, useTomlFiles, getActiveProvider } from "../config.ts";
 import { listSkills } from "../skills.ts";
 
 const client = new Client({
@@ -209,6 +209,7 @@ async function buildChannelHistory(msg: Message): Promise<ChatMessage[]> {
 
 export async function startDiscord(): Promise<void> {
 const startupConfig = loadConfig();
+console.log(`[gateway] Active provider: ${getActiveProvider(startupConfig)}`);
 const discordCfg = startupConfig.channel?.discord;
 if (!discordCfg?.enabled) {
     return;
