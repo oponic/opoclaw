@@ -209,6 +209,7 @@ async function buildChannelHistory(msg: Message): Promise<ChatMessage[]> {
 
 export async function startDiscord(): Promise<void> {
 const startupConfig = loadConfig();
+console.log(`[gateway] Active provider: ${getActiveProvider(startupConfig)}`);
 const discordCfg = startupConfig.channel?.discord;
 if (!discordCfg?.enabled) {
     return;

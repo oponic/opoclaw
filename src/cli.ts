@@ -272,7 +272,11 @@ async function gatewayStart() {
     process.stderr.write(`${C}[gateway]${X} ${d}`);
   });
 
+  let childExited = false;
+  let exitCode: number | null = null;
   child.on("exit", (code) => {
+    childExited = true;
+    exitCode = code;
     clearGatewayPID();
     if (code !== 0) {
       err(`Gateway exited with code ${code}`);
@@ -281,7 +285,10 @@ async function gatewayStart() {
 
   // Brief delay to check startup
   setTimeout(() => {
-    if (getGatewayPID()) {
+    if (childExited) {
+      // Child already exited, don't report success
+      err(`Gateway failed to start (exit code ${exitCode})`);
+    } else if (getGatewayPID()) {
       ok(`Gateway running (PID ${child.pid})`);
     }
   }, 2000);
