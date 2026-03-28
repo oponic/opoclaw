@@ -16,11 +16,11 @@ import {
 import { resolve } from "path";
 import { unlink, readFile as readFileFs } from "fs/promises";
 import { readFileAsync } from "../workspace.ts";
-import { runAgent, type Message as ChatMessage, type ToolCall } from "../agent.ts";
+import { runAgent, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
 import { getFilePath } from "../workspace.ts";
 import { pendingFileSend, clearPendingFileSend } from "../tools.ts";
 
-import { getSemanticSearchEnabled, loadConfig, useTomlFiles } from "../config.ts";
+import { getSemanticSearchEnabled, getVisionEnabled, loadConfig, useTomlFiles } from "../config.ts";
 import { listSkills } from "../skills.ts";
 
 const client = new Client({
@@ -326,10 +326,25 @@ client.on(Events.MessageCreate, async (msg: Message) => {
     const systemPrompt = systemPromptParts.join("\n") || "You are a helpful assistant.";
 
     const userText = msg.content.replace(/<@!?\d+>/g, "").trim();
-    history.push({
-        role: "user",
-        content: `[${msg.author.displayName}]: ${userText || "(empty message)"}`,
-    });
+    const visionEnabled = getVisionEnabled(config);
+    const imageAttachments = visionEnabled
+        ? Array.from(msg.attachments.values()).filter((a) => (a.contentType || "").startsWith("image/"))
+        : [];
+
+    if (visionEnabled && imageAttachments.length > 0) {
+        const parts: any[] = [];
+        const text = `[${msg.author.displayName}]: ${userText || "(image)"}`;
+        parts.push({ type: "text", text });
+        for (const img of imageAttachments) {
+            parts.push({ type: "image_url", image_url: { url: img.url } });
+        }
+        history.push({ role: "user", content: parts });
+    } else {
+        history.push({
+            role: "user",
+            content: `[${msg.author.displayName}]: ${userText || "(empty message)"}`,
+        });
+    }
 
     let swappedToThinking = false;
     let gotToolCall = false;
@@ -341,7 +356,12 @@ client.on(Events.MessageCreate, async (msg: Message) => {
         removeReaction(msg, EYES);
     };
     const toolMessages: { [id: string]: Message } = {};
+    const lessVerboseTools = config.less_verbose_tools ?? false;
     const onToolCall = async (call: ToolCall, uniqueId: string) => {
+        if (call.function.name === "deep_research") {
+            await (msg.channel as TextChannel).send(`-# Using Deep Research...`);
+            return;
+        }
         if (APPROVAL_TOOLS.has(call.function.name)) {
             return;
         }
@@ -349,6 +369,7 @@ client.on(Events.MessageCreate, async (msg: Message) => {
             await addReaction(msg, TOOL);
             gotToolCall = true;
         }
+        if (lessVerboseTools) return;
         // assuming there's only one argument we only want to show that
         let fullText = '-# 🔧  Called `' + call.function.name + '`';
         try {
@@ -379,10 +400,35 @@ client.on(Events.MessageCreate, async (msg: Message) => {
         toolMessages[uniqueId] = m;
     };
     const onToolCallError = async (uniqueId: string, error: Error) => {
+        if (lessVerboseTools) {
+            await (msg.channel as TextChannel).send(`-# 🛑 Tool error: ${error.message}`);
+            return;
+        }
         const m = toolMessages[uniqueId];
         if (m) {
             await m.edit(m.content + `  •  🛑 Error: ${error.message}`);
         }
+    };
+
+    const onToolBatch = async (calls: ToolCall[], results: any[]) => {
+        if (!lessVerboseTools) return;
+        try {
+            const summary = await summarizeToolBatch(calls, results, config);
+            const trimmed = summary.trim();
+            if (trimmed && trimmed !== "(no summary)") {
+                await (msg.channel as TextChannel).send(`-# ${trimmed}`);
+            } else {
+                await (msg.channel as TextChannel).send(`-# Advanced the task toward the requested outcome.`);
+            }
+        } catch (e: any) {
+            await (msg.channel as TextChannel).send(`-# 🛑 Tool summary failed: ${e.message}`);
+        }
+    };
+
+    const onDeepResearchSummary = async (summary: string) => {
+        const trimmed = summary.trim();
+        if (!trimmed) return;
+        await (msg.channel as TextChannel).send(`-# ${trimmed}`);
     };
 
     const requestToolApproval = async (call: ToolCall, uniqueId: string) => {
@@ -478,6 +524,8 @@ client.on(Events.MessageCreate, async (msg: Message) => {
             onToolCall,
             onToolCallError,
             requestToolApproval,
+            onToolBatch,
+            onDeepResearchSummary,
         );
 
         // Prefix reasoning summary if it's a real summary (not fallback)

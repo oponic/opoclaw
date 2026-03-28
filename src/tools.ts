@@ -189,6 +189,24 @@ export const TOOLS: { [id: string]: any } = {
             },
         },
     },
+    deep_research: {
+        type: "function",
+        function: {
+            name: "deep_research",
+            description:
+                "Enable Deep Research mode to perform multi-step research and return synthesized markdown documents.",
+            parameters: {
+                type: "object",
+                properties: {
+                    query: {
+                        type: "string",
+                        description: "Research query or question.",
+                    },
+                },
+                required: ["query"],
+            },
+        },
+    },
     web_fetch: {
         type: "function",
         function: {

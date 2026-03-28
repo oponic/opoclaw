@@ -117,7 +117,7 @@ export function formatTOMLValue(value: any): string {
 export interface OpoclawConfig {
     provider?: {
         active?: "openrouter" | "ollama" | "custom";
-        openrouter?: { api_key?: string; model?: string; base_url?: string };
+        openrouter?: { api_key?: string; model?: string; base_url?: string; vision?: boolean };
         ollama?: { base_url?: string; model?: string };
         custom?: {
             base_url?: string;
@@ -126,6 +126,7 @@ export interface OpoclawConfig {
             api_type?: "openai" | "anthropic";
             anthropic_version?: string;
             max_tokens?: number;
+            vision?: boolean;
         };
     };
     channel?: {
@@ -157,6 +158,7 @@ export interface OpoclawConfig {
     update_channel?: "stable" | "unstable";
     exposed_commands?: string[];
     enable_web_fetch?: boolean;
+    less_verbose_tools?: boolean;
 }
 
 export function loadConfig(): OpoclawConfig {
@@ -203,6 +205,7 @@ export function getTools(config: OpoclawConfig): any[] {
         TOOLS.update_opoclaw,
         TOOLS.use_skill,
         TOOLS.list_skills,
+        TOOLS.deep_research,
         TOOLS.shell,
     ];
 
@@ -227,6 +230,13 @@ export function useTomlFiles(config: OpoclawConfig): boolean {
 
 export function getActiveProvider(config: OpoclawConfig): "openrouter" | "ollama" | "custom" {
     return config.provider?.active || "openrouter";
+}
+
+export function getVisionEnabled(config: OpoclawConfig): boolean {
+    const active = getActiveProvider(config);
+    if (active === "custom") return config.provider?.custom?.vision ?? false;
+    if (active === "ollama") return false;
+    return config.provider?.openrouter?.vision ?? false;
 }
 
 export function getExposedCommands(config: OpoclawConfig): string[] {

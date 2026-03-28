@@ -175,7 +175,7 @@ export async function startIRC(): Promise<void> {
             const userText = cleaned || "(empty message)";
             const historyWithUser = history.concat([{ role: "user", content: `[${sender}]: ${userText}` }]);
 
-            const { text: responseText } = await runAgent(historyWithUser, systemPrompt, config, () => {}, () => {}, () => {});
+            const { text: responseText } = await runAgent(historyWithUser, systemPrompt, config, () => {}, () => {}, () => {}, undefined, undefined);
 
             pushHistory(key, { role: "user", content: `[${sender}]: ${userText}` });
             if (responseText) {

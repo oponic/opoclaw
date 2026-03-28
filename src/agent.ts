@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 
 interface Message {
     role: "system" | "user" | "assistant" | "tool";
-    content: string | null;
+    content: any | null;
     tool_calls?: ToolCall[];
     tool_call_id?: string;
     name?: string;
@@ -19,6 +19,12 @@ export interface ToolCall {
         name: string;
         arguments: string;
     };
+}
+
+interface ToolResult {
+    name: string;
+    arguments: string;
+    output: string;
 }
 
 interface UsageStats {
@@ -99,10 +105,22 @@ function buildAnthropicMessages(messages: Message[]): { system: string; messages
         }
 
         if (m.role === "user") {
-            out.push({
-                role: "user",
-                content: [{ type: "text", text: m.content ?? "" }],
-            });
+            if (Array.isArray(m.content)) {
+                const blocks: any[] = [];
+                for (const part of m.content) {
+                    if (part?.type === "text") {
+                        blocks.push({ type: "text", text: part.text || "" });
+                    } else if (part?.type === "image_url" && part.image_url?.url) {
+                        blocks.push({ type: "image", source: { type: "url", url: part.image_url.url } });
+                    }
+                }
+                out.push({ role: "user", content: blocks.length ? blocks : [{ type: "text", text: "" }] });
+            } else {
+                out.push({
+                    role: "user",
+                    content: [{ type: "text", text: m.content ?? "" }],
+                });
+            }
         }
     }
 
@@ -152,11 +170,12 @@ async function recordUsage(usage: any, model: string): Promise<void> {
 async function streamCompletion(
     messages: Message[],
     config: OpoclawConfig,
-    onFirstToken: () => void
+    onFirstToken: () => void,
+    toolsOverride?: any[]
 ): Promise<{ text: string | null; toolCalls: ToolCall[]; usage: any; reasoning: string }> {
     if (isAnthropicCustom(config)) {
         const { system, messages: anthroMessages } = buildAnthropicMessages(messages);
-        const tools = getTools(config).map((t: any) => ({
+        const tools = (toolsOverride ?? getTools(config)).map((t: any) => ({
             name: t.function.name,
             description: t.function.description,
             input_schema: t.function.parameters,
@@ -221,7 +240,7 @@ async function streamCompletion(
     const body: any = {
         model: getModelId(config),
         messages,
-        tools: getTools(config),
+        tools: toolsOverride ?? getTools(config),
         tool_choice: "auto",
         stream: true,
     };
@@ -375,6 +394,187 @@ async function generateReasoningSummary(
     return data.choices?.[0]?.message?.content?.trim() || "(no summary)";
 }
 
+export async function summarizeToolBatch(
+    calls: ToolCall[],
+    results: ToolResult[],
+    config: OpoclawConfig
+): Promise<string> {
+    const summaryInput = results.map((r) => ({
+        name: r.name,
+        arguments: r.arguments,
+        output: r.output.slice(0, 1000),
+    }));
+    const prompt = `Write one short, high-level sentence summarizing what was accomplished. It should mention the objective or outcome, not the tools or files used. No markdown, no bullet points.\n\n${JSON.stringify(summaryInput, null, 2)}`;
+
+    if (isAnthropicCustom(config)) {
+        const response = await fetch(`${getApiBaseUrl(config)}/v1/messages`, {
+            method: "POST",
+            headers: {
+                "x-api-key": getApiKey(config),
+                "anthropic-version": config.provider?.custom?.anthropic_version || "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: getModelId(config),
+                system: "You summarize actions at a high level without mentioning tools or files. Output exactly one short sentence.",
+                messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+                max_tokens: 200,
+            }),
+        });
+        if (!response.ok) {
+            const errText = await response.text().catch(() => "");
+            throw new Error(`Summary API error ${response.status}: ${errText.slice(0, 200)}`);
+        }
+        const data: any = await response.json();
+        const text = data?.content?.map((b: any) => b?.text).filter(Boolean).join("") || "";
+        return text.trim();
+    }
+
+    const response = await fetch(`${getApiBaseUrl(config)}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${getApiKey(config)}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            model: getModelId(config),
+            messages: [
+                { role: "system", content: "You summarize actions at a high level without mentioning tools or files. Output exactly one short sentence." },
+                { role: "user", content: prompt },
+            ],
+            stream: false,
+            max_tokens: 200,
+        }),
+    });
+
+    if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        throw new Error(`Summary API error ${response.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const data: any = await response.json();
+    return data.choices?.[0]?.message?.content?.trim() || "";
+}
+
+function parseDeepResearchDocs(text: string): { title: string; content: string }[] {
+    try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed?.docs)) {
+            return parsed.docs
+                .filter((d: any) => d?.title && d?.content)
+                .map((d: any) => ({ title: String(d.title), content: String(d.content) }));
+        }
+        if (Array.isArray(parsed)) {
+            return parsed
+                .filter((d: any) => d?.title && d?.content)
+                .map((d: any) => ({ title: String(d.title), content: String(d.content) }));
+        }
+    } catch {
+    }
+    const fallback = text.trim();
+    if (!fallback) return [];
+    return [{ title: "Research Summary", content: fallback }];
+}
+
+export async function runDeepResearch(
+    query: string,
+    config: OpoclawConfig,
+    onSearchSummary?: (summary: string) => Promise<void>
+): Promise<string> {
+    const systemPrompt =
+        "You are in Deep Research mode. Use search and web_fetch to gather information. " +
+        "Synthesize 2-4 concise markdown documents. Output JSON: {\"docs\":[{\"title\":\"...\",\"content\":\"...\"}]} " +
+        "Only output JSON, no markdown fences.";
+
+    const messages: Message[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: query },
+    ];
+
+    const searchBatch: ToolResult[] = [];
+    let searchCount = 0;
+    const MAX_MESSAGE_CHARS = 120000;
+    const MAX_TURNS = 40;
+    const MAX_TOOL_OUTPUT = 4000;
+
+    const totalChars = () =>
+        messages.reduce((sum, m) => {
+            const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content || "");
+            return sum + (c?.length || 0);
+        }, 0);
+
+    const trimMessages = () => {
+        while (messages.length > MAX_TURNS) {
+            messages.splice(1, 1);
+        }
+        while (totalChars() > MAX_MESSAGE_CHARS && messages.length > 2) {
+            messages.splice(1, 1);
+        }
+    };
+
+    for (let iteration = 0; iteration < 200; iteration++) {
+        trimMessages();
+        const result = await streamCompletion(messages, config, () => {}, undefined);
+        const { text, toolCalls } = result;
+
+        if (toolCalls.length > 0) {
+            messages.push({ role: "assistant", content: text, tool_calls: toolCalls });
+            for (const tc of toolCalls) {
+                let output = "";
+                try {
+                    const args = JSON.parse(tc.function.arguments);
+                    output = await handleToolCall(tc.function.name, args, config);
+                } catch (e: any) {
+                    output = `Error: ${e?.message || e}`;
+                }
+                if (output.length > MAX_TOOL_OUTPUT) {
+                    output = output.slice(0, MAX_TOOL_OUTPUT) + "…";
+                }
+
+                const toolResult: ToolResult = {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments,
+                    output,
+                };
+
+                if (tc.function.name === "search") {
+                    searchBatch.push(toolResult);
+                    searchCount += 1;
+                    if (searchBatch.length >= 3 && onSearchSummary) {
+                        try {
+                            const summary = await summarizeToolBatch([], searchBatch, config);
+                            const trimmed = summary.trim();
+                            if (trimmed) {
+                                await onSearchSummary(trimmed);
+                            }
+                        } catch {
+                        }
+                        searchBatch.length = 0;
+                    }
+                }
+
+                messages.push({
+                    role: "tool",
+                    tool_call_id: tc.id,
+                    name: tc.function.name,
+                    content: output,
+                });
+            }
+            continue;
+        }
+
+        const docs = parseDeepResearchDocs(text || "");
+        if (docs.length === 0) return "Deep research completed, but no documents were produced.";
+
+        const compiled = docs
+            .map((d) => `# ${d.title}\n\n${d.content}`.trim())
+            .join("\n\n");
+        return `Deep Research Docs:\n\n${compiled}`;
+    }
+
+    return "Deep research terminated (iteration limit reached).";
+}
+
 export async function runAgent(
     history: Message[],
     systemPrompt: string,
@@ -382,7 +582,9 @@ export async function runAgent(
     onFirstToken: () => void,
     onToolCall: (call: ToolCall, uniqueId: string) => void,
     onToolCallError: (uniqueId: string, error: Error) => void,
-    requestToolApproval?: (call: ToolCall, uniqueId: string) => Promise<{ approved: boolean; message?: string }>
+    requestToolApproval?: (call: ToolCall, uniqueId: string) => Promise<{ approved: boolean; message?: string }>,
+    onToolBatch?: (calls: ToolCall[], results: ToolResult[]) => Promise<void>,
+    onDeepResearchSummary?: (summary: string) => Promise<void>
 ): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
     const messages: Message[] = [
         { role: "system", content: systemPrompt },
@@ -417,6 +619,7 @@ export async function runAgent(
                 tool_calls: toolCalls,
             });
 
+            const toolResults: ToolResult[] = [];
             for (const tc of toolCalls) {
                 let result: string;
                 let uniqueId = Math.random().toString(36).substring(2, 10);
@@ -425,25 +628,21 @@ export async function runAgent(
                     if (onToolCall) {
                         onToolCall(tc, uniqueId);
                     }
+                    const runTool = async () => {
+                        if (tc.function.name === "deep_research") {
+                            return await runDeepResearch(String(args.query || ""), config, onDeepResearchSummary);
+                        }
+                        return await handleToolCall(tc.function.name, args, config);
+                    };
                     if (requestToolApproval) {
                         const approval = await requestToolApproval(tc, uniqueId);
                         if (!approval.approved) {
                             result = approval.message || "Not authorized to perform this action.";
                         } else {
-                            result = await handleToolCall(tc.function.name, args, config).catch((e) => {
-                                if (onToolCallError) {
-                                    onToolCallError(uniqueId, e);
-                                }
-                                return `Error: ${e.toString()}`;
-                            });
+                            result = await runTool();
                         }
                     } else {
-                        result = await handleToolCall(tc.function.name, args, config).catch((e) => {
-                            if (onToolCallError) {
-                                onToolCallError(uniqueId, e);
-                            }
-                            return `Error: ${e.toString()}`;
-                        });
+                        result = await runTool();
                     }
                 } catch (e: any) {
                     if (onToolCallError) {
@@ -451,12 +650,21 @@ export async function runAgent(
                     }
                     result = `Error: ${e.toString()}`;
                 }
+                toolResults.push({
+                    name: tc.function.name,
+                    arguments: tc.function.arguments,
+                    output: result,
+                });
                 messages.push({
                     role: "tool",
                     tool_call_id: tc.id,
                     name: tc.function.name,
                     content: result,
                 });
+            }
+
+            if (onToolBatch) {
+                await onToolBatch(toolCalls, toolResults);
             }
 
             continue;
