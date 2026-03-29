@@ -20,7 +20,7 @@ import { runAgent, summarizeToolBatch, type Message as ChatMessage, type ToolCal
 import { getFilePath } from "../workspace.ts";
 import { pendingFileSend, clearPendingFileSend } from "../tools.ts";
 
-import { getSemanticSearchEnabled, getVisionEnabled, loadConfig, useTomlFiles } from "../config.ts";
+import { getActiveProvider, getSemanticSearchEnabled, getVisionEnabled, loadConfig, useTomlFiles } from "../config.ts";
 import { listSkills } from "../skills.ts";
 
 const client = new Client({
