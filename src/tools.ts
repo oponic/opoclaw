@@ -671,7 +671,7 @@ export async function handleToolCall(
                 if (res.status === 429) {
                     let retryAfterMs = 1000;
                     try {
-                        const body = await res.json();
+                        const body: any = await res.json();
                         if (typeof body?.retry_after === "number") {
                             retryAfterMs = Math.max(0, Math.ceil(body.retry_after * 1000));
                         }
@@ -729,7 +729,7 @@ export async function handleToolCall(
             if (!args.shell_command) throw new Error("Missing 'shell_command' argument for shell.");
             const result = await shell.exec(args.shell_command);
             let output = "";
-            
+
             if (result.stdout) output += `stdout:\n\`\`\`${dec.decode(result.stdout).trim()}\`\`\`\n`;
             if (result.stderr) output += `stderr:\n\`\`\`${dec.decode(result.stderr).trim()}\`\`\`\n`;
             if (output.length === 0) output = "(no shell output)";
