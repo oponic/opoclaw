@@ -852,7 +852,7 @@ ${responseText}`;
             finalResponse += `\n-# ⚠️ An update is available (${updateTag}). Run \`opoclaw update\` to update, or ask your agent to perform the update.`;
         }
 
-        if (!finalResponse.trim()) {
+        if (!finalResponse.trim() || finalResponse.trim() === "HEARTBEAT_OK") {
             return;
         }
 

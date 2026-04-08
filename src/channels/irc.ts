@@ -178,7 +178,7 @@ export async function startIRC(): Promise<void> {
             const { text: responseText } = await runAgent(historyWithUser, systemPrompt, config, () => {}, () => {}, () => {}, undefined, undefined, undefined, undefined);
 
             pushHistory(key, { role: "user", content: `[${sender}]: ${userText}` });
-            if (responseText) {
+            if (responseText && responseText.trim() !== "HEARTBEAT_OK") {
                 pushHistory(key, { role: "assistant", content: responseText });
                 const targetName = isDirect ? sender : target;
                 for (const chunk of splitIrcMessage(responseText)) {
