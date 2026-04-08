@@ -504,8 +504,6 @@ export async function startDiscord(): Promise<void> {
                 const trimmed = summary.trim();
                 if (trimmed && trimmed !== "(no summary)") {
                     await (msg.channel as TextChannel).send(`-# ${trimmed}`);
-                } else {
-                    await (msg.channel as TextChannel).send(`-# Advanced the task toward the requested outcome.`);
                 }
             } catch (e: any) {
                 await (msg.channel as TextChannel).send(`-# 🛑 Tool summary failed: ${e.message}`);
