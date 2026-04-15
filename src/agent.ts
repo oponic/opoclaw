@@ -3,6 +3,8 @@ import { getApiBaseUrl, getApiKey, getModelId, getTools, getActiveProvider, type
 import { dirname, join } from "path";
 import { mkdir } from "fs/promises";
 import { fileURLToPath } from "url";
+import { readFileAsync, editFile } from "./workspace.ts";
+import { existsSync } from "fs";
 
 interface Message {
     role: "system" | "user" | "assistant" | "tool";
@@ -414,6 +416,29 @@ async function generateReasoningSummary(
 
     const data: any = await response.json();
     return data.choices?.[0]?.message?.content?.trim() || "(no summary)";
+}
+
+export async function logSession(
+    query: string,
+    response: string
+): Promise<void> {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const sessionPath = `memory/sessions/${today}.md`;
+        const timestamp = new Date().toISOString();
+        const entry = `\n## ${timestamp}\n**Q:** ${query}\n**A:** ${response}\n`;
+        
+        try {
+            const existing = await readFileAsync(sessionPath).catch(() => "");
+            await editFile(sessionPath, existing + entry);
+        } catch (err) {
+            // If file doesn't exist, create it with the entry
+            await editFile(sessionPath, `# Session Log for ${today}\n${entry}`);
+        }
+    } catch (err) {
+        // Non-critical: log failure but don't throw
+        console.warn(`Failed to log session: ${err}`);
+    }
 }
 
 export async function summarizeToolBatch(

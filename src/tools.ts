@@ -409,6 +409,23 @@ export const TOOLS: { [id: string]: any } = {
     }
 } as const;
 
+// Plugin tool registry: handlers provided by plugins at runtime
+const PLUGIN_TOOL_HANDLERS: Map<string, { descriptor: any; handler: (args: Record<string, any>, config: any) => Promise<string>; pluginId?: string }> = new Map();
+
+export function registerTool(id: string, descriptor: any, handler: (args: Record<string, any>, config: any) => Promise<string>, pluginId?: string) {
+    if (!id || !descriptor || !handler) throw new Error('Invalid tool registration');
+    // Register in the main TOOLS map so the model can see it
+    try {
+        (TOOLS as any)[id] = descriptor;
+    } catch {}
+    PLUGIN_TOOL_HANDLERS.set(id, { descriptor, handler, pluginId });
+}
+
+export function unregisterTool(id: string) {
+    PLUGIN_TOOL_HANDLERS.delete(id);
+    try { delete (TOOLS as any)[id]; } catch {}
+}
+
 const CACHE_DIR = path.resolve(import.meta.dir, "../cache/embeddings");
 const SIMILARITY_THRESHOLD = 0.65;
 
@@ -897,7 +914,17 @@ export async function handleToolCall(
                     : cwd;
             return output.trim() + `\n(Current directory: ${display})`;
         }
-        default:
+        default: {
+            const ph = PLUGIN_TOOL_HANDLERS.get(name);
+            if (ph && ph.handler) {
+                try {
+                    // plugin handler may expect parsed args
+                    return await ph.handler(args, config);
+                } catch (e: any) {
+                    throw new Error(`Plugin tool error: ${e?.message || e}`);
+                }
+            }
             throw new Error(`Unknown tool: ${name}`);
+        }
     }
 }

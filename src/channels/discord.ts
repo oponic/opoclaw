@@ -17,7 +17,7 @@ import {
 import { resolve } from "path";
 import { unlink, readFile as readFileFs } from "fs/promises";
 import { readFileAsync } from "../workspace.ts";
-import { runAgent, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
+import { runAgent, summarizeToolBatch, type Message as ChatMessage, type ToolCall, logSession } from "../agent.ts";
 import { getFilePath } from "../workspace.ts";
 import { pendingFileSend, clearPendingFileSend } from "../tools.ts";
 
@@ -371,10 +371,10 @@ export async function startDiscord(): Promise<void> {
 
         const [systemBase, agentsContent, soulContent, identityContent, memoryContent, history, skills] = await Promise.all([
             loadSystemPromptBase(),
-            readFileAsync(useToml ? 'agents.toml' : 'AGENTS.md').catch(() => ""),
-            readFileAsync(useToml ? 'soul.toml' : 'SOUL.md').catch(() => ""),
-            readFileAsync(useToml ? 'identity.toml' : 'IDENTITY.md').catch(() => ""),
-            readFileAsync(useToml ? 'memory.toml' : 'MEMORY.md').catch(() => ""),
+            readFileAsync(useToml ? 'config/agents.toml' : 'config/AGENTS.md').catch(() => ""),
+            readFileAsync(useToml ? 'config/soul.toml' : 'config/SOUL.md').catch(() => ""),
+            readFileAsync(useToml ? 'config/identity.toml' : 'config/IDENTITY.md').catch(() => ""),
+            readFileAsync(useToml ? 'config/memory.toml' : 'config/MEMORY.md').catch(() => ""),
             buildChannelHistory(msg),
             listSkills(),
         ]);
@@ -832,6 +832,13 @@ export async function startDiscord(): Promise<void> {
                 onDeepResearchSummary,
                 executeTool,
             );
+
+            // Log session to memory/sessions/<date>.md
+            if (responseText) {
+                const lastMsg = history[history.length - 1];
+                const userQuery = lastMsg ? (typeof lastMsg.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg.content || "")) : msg.content;
+                await logSession(userQuery, responseText).catch(err => console.warn(`Session logging failed: ${err}`));
+            }
 
             // Prefix reasoning summary if it's a real summary (not fallback)
         let finalResponse = responseText;

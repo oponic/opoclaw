@@ -5,6 +5,9 @@ import { readdir, stat, readFile } from "fs/promises";
 
 const SKILLS_DIR = resolve(WORKSPACE_DIR, "skills");
 
+// Plugin-provided skills (in-memory)
+const PLUGIN_SKILLS: Map<string, { name: string; content: string; metadata?: any }> = new Map();
+
 function isSafeSkillName(name: string): boolean {
     return /^[A-Za-z0-9._-]+$/.test(name);
 }
@@ -36,10 +39,26 @@ export async function listSkills(): Promise<string[]> {
         } catch {
         }
     }
+    // Merge plugin skills
+    for (const k of PLUGIN_SKILLS.keys()) {
+        if (!skills.includes(k)) skills.push(k);
+    }
     return skills.sort();
 }
 
 export async function readSkill(name: string): Promise<string> {
+    // Plugin skill takes precedence
+    const p = PLUGIN_SKILLS.get(name);
+    if (p) return p.content;
     const path = getSkillFilePath(name);
     return await readFile(path, "utf-8");
+}
+
+export function registerSkill(meta: { name: string; content: string; metadata?: any }): void {
+    if (!meta || !meta.name) throw new Error("Invalid skill metadata");
+    PLUGIN_SKILLS.set(meta.name, { name: meta.name, content: meta.content || "", metadata: meta.metadata });
+}
+
+export function unregisterSkill(name: string): void {
+    PLUGIN_SKILLS.delete(name);
 }
