@@ -1,5 +1,5 @@
-import { resolve, join, relative } from "path";
-import { existsSync, statSync } from "fs";
+import { resolve, join, relative, dirname } from "path";
+import { existsSync, statSync, mkdirSync, rmSync, renameSync, copyFileSync, readdirSync } from "fs";
 
 export const WORKSPACE_DIR = resolve(import.meta.dir, "../workspace");
 
@@ -74,6 +74,59 @@ export async function editFile(
   const abs = safePath(relativePath, mounts);
   // good riddance stupid checky thingy, it could be bypassed by shell anyway
   await Bun.write(abs, newContent);
+}
+
+export function mkdirPath(relativePath: string, mounts?: Record<string, string>): string {
+  const { abs } = resolveMountPath(relativePath, mounts);
+  if (existsSync(abs) && statSync(abs).isDirectory()) return `Directory already exists: ${relativePath}`;
+  mkdirSync(abs, { recursive: true });
+  return `Created directory: ${relativePath}`;
+}
+
+export function removePath(relativePath: string, recursive = false, mounts?: Record<string, string>): string {
+  const { abs } = resolveMountPath(relativePath, mounts);
+  if (!existsSync(abs)) throw new Error(`Path not found: ${relativePath}`);
+  const st = statSync(abs);
+  if (st.isDirectory() && !recursive) throw new Error("Path is a directory; set recursive=true to remove directories.");
+  rmSync(abs, { recursive, force: true });
+  return `Removed: ${relativePath}`;
+}
+
+export function movePath(srcRelative: string, destRelative: string, mounts?: Record<string, string>): string {
+  const { abs: src } = resolveMountPath(srcRelative, mounts);
+  const { abs: dest } = resolveMountPath(destRelative, mounts);
+  if (!existsSync(src)) throw new Error(`Source not found: ${srcRelative}`);
+  const parent = dirname(dest);
+  mkdirSync(parent, { recursive: true });
+  renameSync(src, dest);
+  return `Moved ${srcRelative} -> ${destRelative}`;
+}
+
+function copyDirRecursive(s: string, d: string) {
+  mkdirSync(d, { recursive: true });
+  for (const name of readdirSync(s)) {
+    const sp = resolve(s, name);
+    const dp = resolve(d, name);
+    const si = statSync(sp);
+    if (si.isDirectory()) copyDirRecursive(sp, dp);
+    else copyFileSync(sp, dp);
+  }
+}
+
+export function copyPath(srcRelative: string, destRelative: string, recursive = false, mounts?: Record<string, string>): string {
+  const { abs: src } = resolveMountPath(srcRelative, mounts);
+  const { abs: dest } = resolveMountPath(destRelative, mounts);
+  if (!existsSync(src)) throw new Error(`Source not found: ${srcRelative}`);
+  const st = statSync(src);
+  const destParent = dirname(dest);
+  mkdirSync(destParent, { recursive: true });
+  if (st.isDirectory()) {
+    if (!recursive) throw new Error("Source is a directory; set recursive=true to copy directories.");
+    copyDirRecursive(src, dest);
+  } else {
+    copyFileSync(src, dest);
+  }
+  return `Copied ${srcRelative} -> ${destRelative}`;
 }
 
 export async function listFiles(mounts?: Record<string, string>): Promise<string[]> {

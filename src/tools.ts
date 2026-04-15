@@ -1,4 +1,4 @@
-import { readFileAsync, getFilePath, editFile, listFiles, WORKSPACE_DIR } from "./workspace.ts";
+import { readFileAsync, getFilePath, editFile, listFiles, WORKSPACE_DIR, mkdirPath, removePath, movePath, copyPath } from "./workspace.ts";
 import { Ollama } from "ollama";
 
 export const TOOLS: { [id: string]: any } = {
@@ -221,6 +221,66 @@ export const TOOLS: { [id: string]: any } = {
                     },
                 },
                 required: ["url"],
+            },
+        },
+    },
+    mkdir: {
+        type: "function",
+        function: {
+            name: "mkdir",
+            description: "Create a directory inside the workspace or a mounted path.",
+            parameters: {
+                type: "object",
+                properties: {
+                    path: { type: "string", description: "Relative path to create." },
+                },
+                required: ["path"],
+            },
+        },
+    },
+    rm: {
+        type: "function",
+        function: {
+            name: "rm",
+            description: "Remove a file or directory inside the workspace or a mounted path.",
+            parameters: {
+                type: "object",
+                properties: {
+                    path: { type: "string", description: "Relative path to remove." },
+                    recursive: { type: "boolean", description: "Remove directories recursively." },
+                },
+                required: ["path"],
+            },
+        },
+    },
+    mv: {
+        type: "function",
+        function: {
+            name: "mv",
+            description: "Move/rename a file or directory within the workspace or between mounts.",
+            parameters: {
+                type: "object",
+                properties: {
+                    src: { type: "string", description: "Source relative path." },
+                    dest: { type: "string", description: "Destination relative path." },
+                },
+                required: ["src", "dest"],
+            },
+        },
+    },
+    cp: {
+        type: "function",
+        function: {
+            name: "cp",
+            description: "Copy a file or directory within the workspace or between mounts.",
+            parameters: {
+                type: "object",
+                properties: {
+                    src: { type: "string", description: "Source relative path." },
+                    dest: { type: "string", description: "Destination relative path." },
+                    recursive: { type: "boolean", description: "Copy directories recursively." },
+                },
+                required: ["src", "dest"],
             },
         },
     },
@@ -715,6 +775,26 @@ export async function handleToolCall(
             const res = await fetch(url, { headers: { "User-Agent": "opoclaw-bot/1.0" } });
             if (!res.ok) throw new Error(`web_fetch failed (${res.status})`);
             return await res.text();
+        }
+        case "mkdir": {
+            if (!args.path) throw new Error("Missing 'path' argument for mkdir.");
+            return mkdirPath(String(args.path), config.mounts);
+        }
+        case "rm": {
+            if (!args.path) throw new Error("Missing 'path' argument for rm.");
+            const recursive = String(args.recursive) === "true" || String(args.recursive) === "1";
+            return removePath(String(args.path), recursive, config.mounts);
+        }
+        case "mv": {
+            if (!args.src) throw new Error("Missing 'src' argument for mv.");
+            if (!args.dest) throw new Error("Missing 'dest' argument for mv.");
+            return movePath(String(args.src), String(args.dest), config.mounts);
+        }
+        case "cp": {
+            if (!args.src) throw new Error("Missing 'src' argument for cp.");
+            if (!args.dest) throw new Error("Missing 'dest' argument for cp.");
+            const recursive = String(args.recursive) === "true" || String(args.recursive) === "1";
+            return copyPath(String(args.src), String(args.dest), recursive, config.mounts);
         }
         case "react_message": {
             const channelId = String(args.channel_id || "");

@@ -152,6 +152,7 @@ export interface OpoclawConfig {
     reasoning_summary?: boolean;
     reasoning_summary_model?: string;
     basic_tools?: boolean;
+    advanced_tools?: boolean;
     ollama_semantic_search?: boolean;
     use_toml_files?: boolean;
     authorized_user_id?: string;
@@ -222,6 +223,10 @@ export function getTools(config: OpoclawConfig): any[] {
 
     if (config.basic_tools ?? true) {
         tools.push(TOOLS.read_file, TOOLS.edit_file, TOOLS.list_files);
+    }
+
+    if (config.advanced_tools ?? false) {
+        tools.push(TOOLS.mkdir, TOOLS.rm, TOOLS.mv, TOOLS.cp);
     }
 
     return tools;
