@@ -168,6 +168,7 @@ export interface OpoclawConfig {
     plugin_dir?: string;
     // Whether to attempt running plugins in isolated workers (not fully implemented)
     plugin_use_workers?: boolean;
+    show_update_notification?: boolean;
 }
 
 export function loadConfig(): OpoclawConfig {

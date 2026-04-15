@@ -854,9 +854,11 @@ ${responseText}`;
 
         finalResponse = sanitizeModelOutput(finalResponse);
 
-        const updateTag = await getUpdateTag();
-        if (updateTag) {
-            finalResponse += `\n-# ⚠️ An update is available (${updateTag}). Run \`opoclaw update\` to update, or ask your agent to perform the update.`;
+        if (config.show_update_notification ?? true) {
+            const updateTag = await getUpdateTag();
+            if (updateTag) {
+                finalResponse += `\n-# ⚠️ An update is available (${updateTag}). Run \`opoclaw update\` to update, or ask your agent to perform the update.`;
+            }
         }
 
         if (!finalResponse.trim() || finalResponse.trim() === "HEARTBEAT_OK") {
