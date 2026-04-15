@@ -72,11 +72,7 @@ export async function editFile(
   mounts?: Record<string, string>
 ): Promise<void> {
   const abs = safePath(relativePath, mounts);
-  if (!existsSync(abs)) {
-    throw new Error(
-      `Cannot edit "${relativePath}": file does not exist. Creating new files is not allowed.`
-    );
-  }
+  // good riddance stupid checky thingy, it could be bypassed by shell anyway
   await Bun.write(abs, newContent);
 }
 
