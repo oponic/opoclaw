@@ -1,0 +1,141 @@
+---
+title: Plugins
+---
+
+# Plugins
+
+This page documents the opoclaw plugin system: manifest format, lifecycle API, examples, security guidance, and CI checks.
+
+## Overview
+
+Plugins let you extend opoclaw by registering tools (functions the assistant can call) and skills (reusable instruction files). Plugins live in the workspace `plugins/` directory and are discovered at startup when `enable_plugins` is set in `config.toml`.
+
+- Manifest: `plugin.json` placed in `workspace/plugins/<plugin>/plugin.json`.
+- Entry: `entry` points to the plugin entry file (TypeScript/JavaScript) — typically `plugin.ts`.
+- Lifecycle: export `activate(context)` and optional `deactivate()`.
+
+## Enabling plugins
+
+1. Run the onboarding wizard (it creates `workspace/plugins/` and a sample plugin).
+2. In `workspace/config.toml` set:
+
+```
+enable_plugins = true
+plugin_dir = "workspace/plugins"
+```
+
+Optionally enable worker sandboxing:
+
+```
+plugin_use_workers = true
+```
+
+## Manifest (plugin.json)
+
+Minimal example:
+
+```json
+{
+  "name": "example-echo-plugin",
+  "version": "0.1.0",
+  "entry": "plugin.ts",
+  "description": "Example plugin: registers a tool and a skill.",
+  "permissions": {
+    "fileSystem": ["workspace"],
+    "tools": ["echo", "test_echo"]
+  },
+  "hooks": ["onMessage"]
+}
+```
+
+Key fields
+
+- `name` (string, required): unique plugin id.
+- `version` (string): semver of the plugin.
+- `entry` (string): entry file relative to plugin directory (defaults to `plugin.ts`).
+- `permissions` (object): requested permissions (see Security section).
+- `mounts` (object, optional): plugin-declared mounts (validated by operator config).
+- `hooks` (array): events plugin intends to use (optional, informational).
+
+## Plugin API (context)
+
+When a plugin is activated the runtime calls `await activate(context)` where `context` exposes a small API:
+
+- `config`: readonly snapshot of `OpoclawConfig`.
+- `manifest`: parsed manifest object.
+- `root`: absolute plugin folder path.
+- `registerTool(descriptor, handler)`: register a tool the model can call. `descriptor` must include `function.name` (the callable name) and parameters. `handler(args)` must return a string result.
+- `unregisterTool(id)`: unregister a previously registered tool.
+- `registerSkill({ name, content, metadata })`: register an in-memory skill available via `use_skill`.
+- `unregisterSkill(name)`: remove a plugin skill.
+- `readFile(path)`: read a workspace file (requires `fileSystem` permission).
+- `editFile(path, content)`: write a workspace file (requires `fileSystem` permission).
+- `log(...args)`: plugin logging (writes to opoclaw logs).
+- `checkPermission(permissionString)`: query whether the plugin manifest grants the permission (granular format supported, e.g. `tools:test_echo`).
+- `getMounts()`: read-only snapshot of mounts from config.
+
+Return values and errors must be safe strings; the runtime will coerce results to strings when returning to tools.
+
+## Example plugin (plugin.ts)
+
+The onboarding scaffold includes a minimal plugin at `workspace/plugins/example-echo-plugin`.
+
+Example `plugin.ts` outline:
+
+```ts
+export async function activate(context) {
+  context.log('Activating example plugin');
+  context.registerTool({ function: { name: 'echo', description: 'Echo text', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } } }, async (args) => {
+    return `echo:${String(args.text || '')}`;
+  });
+  context.registerSkill({ name: 'example-echo', content: '# Example skill' });
+}
+
+export async function deactivate() {
+  // unregister if needed
+}
+```
+
+If `plugin_use_workers` is enabled, plugins run inside a worker process and communicate with the host over a small RPC. The worker must export an `activate` function and can post `registerTool`/`registerSkill` messages to the host. See `src/plugin_worker_runner.ts`.
+
+## Security & Permissions
+
+The manifest `permissions` object limits what a plugin can do. Examples:
+
+- `fileSystem: ["workspace"]` — allow reading/writing workspace files.
+- `tools: ["read_file", "echo"]` — limit which tool IDs a plugin can register/use.
+- `network: true` — allow outbound network (not enabled by default).
+- `run_shell: true` — allow running shell commands (dangerous).
+
+Principles:
+
+- Default deny: plugins must explicitly request privileges.
+- Operator approval: the operator should enable plugins and review manifests.
+- Runtime enforcement: `readFile`, `editFile`, and `registerTool` check manifest-declared permissions.
+- Sandboxing: prefer `plugin_use_workers = true` to isolate plugin runtime (Worker-based sandbox).
+
+## CI & Tests
+
+Add the following checks to CI:
+
+- Manifest validation: `tests/plugins.test.ts` should validate manifest schema and ensure no path traversal in `entry`.
+- Unit tests: plugin discovery and `registerTool` behavior.
+- Security tests: ensure plugins without permissions cannot call `readFile` or register restricted tools.
+- Lint & Typecheck: `tsc` and ESLint.
+
+## Best practices for plugin authors
+
+- Keep `activate()` idempotent and `deactivate()` clean up registrations.
+- Return plain strings from tool handlers.
+- Avoid performing long-running CPU tasks in-process; prefer worker mode.
+- Request minimal permissions required.
+- Provide a short `README.md` inside the plugin folder describing usage.
+
+## Troubleshooting
+
+- If a plugin fails to load, check opoclaw logs — imports may fail if TypeScript isn't compiled. Prefer shipping compiled JS for production plugins.
+- Use `enable_plugins = false` to disable plugins quickly.
+
+---
+
+For implementation details see `src/plugins.ts`, `src/plugin_worker_runner.ts`, `src/tools.ts`, and `installers/onboard.ts`.

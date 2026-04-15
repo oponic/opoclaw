@@ -163,6 +163,11 @@ export interface OpoclawConfig {
     mounts?: Record<string, string>;
     search_provider?: "duckduckgo" | "tavily";
     tavily_api_key?: string;
+    // Plugin settings
+    enable_plugins?: boolean;
+    plugin_dir?: string;
+    // Whether to attempt running plugins in isolated workers (not fully implemented)
+    plugin_use_workers?: boolean;
 }
 
 export function loadConfig(): OpoclawConfig {
@@ -253,4 +258,17 @@ export function getVisionEnabled(config: OpoclawConfig): boolean {
 
 export function getExposedCommands(config: OpoclawConfig): string[] {
     return config.exposed_commands || [];
+}
+
+export function pluginsEnabled(config: OpoclawConfig): boolean {
+    return config.enable_plugins ?? false;
+}
+
+export function getPluginDir(config: OpoclawConfig): string {
+    // If config provides plugin_dir use it, otherwise default to workspace/plugins relative to repo
+    return config.plugin_dir || resolve(import.meta.dir, "../workspace/plugins");
+}
+
+export function pluginUseWorkers(config: OpoclawConfig): boolean {
+    return config.plugin_use_workers ?? false;
 }
