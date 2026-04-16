@@ -233,6 +233,10 @@ async function main() {
     const basicToolsAns = await ask("Enable read_file, edit_file, list_files tools? (sandboxed)\nIf disabled, the agent will still be able to use the shell to manipulate files. (Y/n): ");
     const basicTools = basicToolsAns.toLowerCase() === "y";
 
+    const toolCallSummariesAns = await ask("Tool call summaries: full (per-call messages), minimal (reaction + batch summary), off (reaction only) [default: full]: ");
+    const toolCallSummariesRaw = toolCallSummariesAns.toLowerCase().trim();
+    const toolCallSummaries = (toolCallSummariesRaw === "minimal" || toolCallSummariesRaw === "off") ? toolCallSummariesRaw : "full";
+
     // ── Tavily Search ──────────────────────────────────────────────────────
 
     const useTavilyAns = await ask("Use Tavily for web search instead of DuckDuckGo? (y/N): ");
@@ -260,6 +264,9 @@ async function main() {
     }
     toml += `use_toml_files = ${enableToml ? "true" : "false"}\n`;
     toml += `basic_tools = ${basicTools ? "true" : "false"}\n`;
+    if (toolCallSummaries !== "full") {
+        toml += `tool_call_summaries = "${toolCallSummaries}"\n`;
+    }
     toml += `\n[channel.discord]\n`;
     toml += `enabled = true\n`;
     toml += `token = "${discordToken}"\n`;

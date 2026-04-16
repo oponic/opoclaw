@@ -88,12 +88,12 @@ test = "~/Documents/experiment"</pre>
 
     <p>There are a few simple changes we can make for Brook compliance.</p>
 
-    <p>First, just apply this simple top-level change: <code>less_verbose_tools = true</code>. This complies with the
+    <p>First, just apply this simple top-level change: <code>tool_call_summaries = "minimal"</code>. This complies with the
         latest codifications on tool messages.</p>
 
     <p>For further compliance, you can consider removing <code>notify_channel</code>, disabling
         <code>reasoning_summary</code>, or setting <code>allow_bots</code> to <code>false</code>, but at the time of
-        writing, the minimum requirement for your Brook compliance is to add <code>less_verbose_tools</code>.</p>
+        writing, the minimum requirement for your Brook compliance is to add <code>tool_call_summaries</code>.</p>
 
     <h2>Additional Guidelines</h2>
 
