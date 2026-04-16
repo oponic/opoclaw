@@ -10,6 +10,7 @@
     "typescript": "^6.0.2"
   },
   "dependencies": {
+    "@iarna/toml": "^2.2.5",
     "discord.js": "^14.26.3",
     "ollama": "^0.6.3",
     "wasm-shell": "0.2.2"
