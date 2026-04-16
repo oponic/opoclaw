@@ -1,5 +1,5 @@
 import { resolve } from "path";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { TOOLS } from "./tools";
 import * as toml from "@iarna/toml";
 

@@ -22,7 +22,7 @@
 - [ ] Add actual documentation to docs/ and rewrite the plugin documentation file
 - [ ] Update installers to support installation in current directory or user-provided4
 - [ ] Reduce `any` type usage (tools.ts, agent.ts, plugins.ts)
-- [ ] Replace custom TOML parser with @std/toml or similar
+- [x] Replace custom TOML parser with @std/toml or similar
 - [ ] Add config validation at load time
 - [ ] Fix unused error variables in catch blocks
 - [ ] Review path handling across workspace operations
