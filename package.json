@@ -7,11 +7,11 @@
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^6.0.2"
   },
   "dependencies": {
     "discord.js": "^14.25.1",
     "ollama": "^0.6.3",
-    "wasm-shell": "0.2.0"
+    "wasm-shell": "0.2.2"
   }
 }
