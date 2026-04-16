@@ -1,5 +1,6 @@
 config.json
 node_modules/
+bun.lock
 .DS_Store
 workspace/
 config.json.bak
