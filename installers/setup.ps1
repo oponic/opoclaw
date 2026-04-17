@@ -1,8 +1,7 @@
 # ── Opoclaw Installer (Windows PowerShell) ──────────────────────────────────
 
 $RepoUrl = "https://github.com/oponic/opoclaw.git"
-$InstallDir = "$HOME\Documents\opoclaw"
-$BinDir = "$HOME\.local\bin"
+$InstallDir = ""
 
 function Write-Header($msg){ Write-Host "`n═══ $msg ═══`n" -ForegroundColor White -BackgroundColor DarkBlue }
 function Write-Info($msg)  { Write-Host "[opoclaw] $msg" -ForegroundColor Cyan }
@@ -48,6 +47,11 @@ function Ensure-Bun {
 }
 
 function Clone-Repo {
+    $parentDir = Split-Path $InstallDir -Parent
+    if ($parentDir -and -not (Test-Path $parentDir)) {
+        Write-Info "Creating parent directory: $parentDir"
+        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+    }
     if (Test-Path $InstallDir) {
         Write-Ok "opoclaw already exists — pulling latest"
         Set-Location $InstallDir
@@ -79,11 +83,21 @@ function Install-Dependencies {
     Write-Ok "Dependencies installed"
 }
 
+function Set-InstallDir {
+    $InputPath = Read-Host "Enter directory to create opoclaw install folder in (leave empty for $HOME\Documents):"
+    if ($InputPath) {
+        $script:InstallDir = Join-Path $InputPath "opoclaw"
+    } else {
+        $script:InstallDir = "$HOME\Documents\opoclaw"
+    }
+}
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 Write-Header "opoclaw installer (Windows)"
 Ensure-Git
 Ensure-Bun
+Set-InstallDir
 
 Write-Header "Setting up opoclaw"
 Clone-Repo

@@ -13,8 +13,7 @@ warn()  { echo -e "${YELLOW}⚠${RESET} $*"; }
 header(){ echo -e "\n${BOLD}═══ $* ═══${RESET}\n"; }
 
 REPO_URL="https://github.com/oponic/opoclaw.git"
-INSTALL_DIR="$HOME/Documents/opoclaw"
-BIN_DIR="$HOME/.local/bin"
+INSTALL_DIR=""
 
 detect_os() {
     case "$(uname -s)" in
@@ -91,6 +90,12 @@ ensure_git() {
 # ── Clone (latest tag) ─────────────────────────────────────────────────────
 
 clone_repo() {
+    parent_dir=$(dirname "$INSTALL_DIR")
+    if [ -n "$parent_dir" ] && [ ! -d "$parent_dir" ]; then
+        info "Creating parent directory: $parent_dir"
+        mkdir -p "$parent_dir"
+    fi
+
     if [ -d "$INSTALL_DIR" ]; then
         ok "opoclaw already exists at $INSTALL_DIR — pulling latest"
         cd "$INSTALL_DIR"
@@ -124,6 +129,15 @@ install_deps() {
     ok "Dependencies installed"
 }
 
+set_install_dir() {
+    read -p "Enter directory to create opoclaw install folder in (leave empty for $HOME\Documents):" input_path
+    if [ -n "$input_path" ]; then
+        INSTALL_DIR="$input_path/opoclaw"
+    else
+        INSTALL_DIR="$HOME/Documents/opoclaw"
+    fi
+}
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 header "Checking dependencies"
@@ -132,6 +146,7 @@ case "$OS" in
 esac
 ensure_git
 install_bun
+set_install_dir
 
 header "Setting up opoclaw"
 clone_repo
