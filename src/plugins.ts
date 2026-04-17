@@ -146,7 +146,7 @@ function buildContextForPlugin(manifest: PluginManifest, root: string, config: a
             const allowed = Array.isArray(toolPerms) ? toolPerms.includes(id) || toolPerms.includes("*") : Boolean(toolPerms);
             if (!allowed) throw new Error(`Plugin ${pluginId} not permitted to register tool ${id}`);
             pluginTools.push(id);
-            registerTool(id, descriptor, async (args: any, cfg: any) => await handler(args), pluginId);
+            registerTool(id, descriptor, async (args: any, cfg: any) => await handler(args, cfg), pluginId);
         },
         unregisterTool: (id: string) => unregisterTool(id),
         readFile: async (rel: string) => {

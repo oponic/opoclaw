@@ -85,10 +85,10 @@ async function main() {
             const { callId, name, args } = msg;
             try {
                 if (typeof mod.handleToolCall === 'function') {
-                    const res = await mod.handleToolCall(name, args);
+                    const res = await mod.handleToolCall(name, args, config);
                     (globalThis as any).postMessage({ type: 'invokeResult', callId, result: res });
                 } else if (typeof mod.invoke === 'function') {
-                    const res = await mod.invoke(name, args);
+                    const res = await mod.invoke(name, args, config);
                     (globalThis as any).postMessage({ type: 'invokeResult', callId, result: res });
                 } else {
                     (globalThis as any).postMessage({ type: 'invokeResult', callId, error: 'Plugin has no invoke handler' });

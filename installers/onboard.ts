@@ -366,7 +366,7 @@ async function main() {
         writeFileSync(resolve(exampleDir, "plugin.json"), JSON.stringify(manifest, null, 2));
         const pluginTs = `export async function activate(context) {
     context.log('Activating example-echo-plugin');
-    context.registerTool({ id: 'echo', function: { name: 'echo', description: 'Echo input text', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } } }, async (args) => {
+    context.registerTool({ id: 'echo', function: { name: 'echo', description: 'Echo input text', parameters: { type: 'object', properties: { text: { type: 'string', description: 'Text to echo back.' } }, required: ['text'] } } }, async (args) => {
         return String(args.text || '');
     });
     context.registerSkill({ name: 'example-echo', content: '# Example Echo Skill\nUse this to echo.' });
