@@ -20,7 +20,7 @@
 - [x] finish plugins
 - [ ] add plugin tests
 - [ ] Add actual documentation to docs/ and rewrite the plugin documentation file
-- [ ] Update installers to support installation in current directory or user-provided4
+- [x] Update installers to support installation in current directory or user-provided
 - [ ] Reduce `any` type usage (tools.ts, agent.ts, plugins.ts)
 - [x] Replace custom TOML parser with @std/toml or similar
 - [ ] Add config validation at load time
