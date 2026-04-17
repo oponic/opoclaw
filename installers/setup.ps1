@@ -84,12 +84,9 @@ function Install-Dependencies {
 }
 
 function Set-InstallDir {
-    $InputPath = Read-Host "Enter directory to create opoclaw install folder in (leave empty for $HOME\Documents):"
-    if ($InputPath) {
-        $script:InstallDir = Join-Path $InputPath "opoclaw"
-    } else {
-        $script:InstallDir = "$HOME\Documents\opoclaw"
-    }
+    $InputPath = Read-Host "Enter directory (leave empty for $HOME\Documents)"
+    $FolderName = Read-Host "Enter folder name (leave empty for 'opoclaw')"
+    $script:InstallDir = Join-Path ($InputPath -or "$HOME\Documents") ($FolderName -or "opoclaw")
 }
 
 # ── Main ────────────────────────────────────────────────────────────────────

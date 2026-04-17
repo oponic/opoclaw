@@ -130,11 +130,13 @@ install_deps() {
 }
 
 set_install_dir() {
-    read -p "Enter directory to create opoclaw install folder in (leave empty for $HOME\Documents):" input_path
+    read -p "Enter directory (leave empty for $HOME/Documents): " input_path
+    read -p "Enter folder name (leave empty for 'opoclaw'): " folder_name
+    : "${folder_name:=opoclaw}"
     if [ -n "$input_path" ]; then
-        INSTALL_DIR="$input_path/opoclaw"
+        INSTALL_DIR="$input_path/$folder_name"
     else
-        INSTALL_DIR="$HOME/Documents/opoclaw"
+        INSTALL_DIR="$HOME/Documents/$folder_name"
     fi
 }
 
