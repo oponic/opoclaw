@@ -96,7 +96,7 @@ For strict typing, the template uses `satisfies PluginModule` from `src/plugin_a
 
 Each plugin runs in its own isolated Worker process:
 
-- **Isolation**: Plugins run in a separate Node.js worker, preventing crashes from affecting the main opoclaw process.
+- **Isolation**: Plugins run in a separate Bun worker, preventing crashes from affecting the main opoclaw process.
 - **Communication**: Host and worker communicate via a minimal protocol: `ready`, `invoke`, `invokeResult`, `shutdown`.
 - **Activation**: Worker loads plugin entry file, validates exported `tools`, and exposes `invoke`.
 - **Shutdown**: When a plugin is unloaded or opoclaw shuts down, the worker is terminated.
