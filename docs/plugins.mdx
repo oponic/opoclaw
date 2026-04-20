@@ -8,11 +8,11 @@ This page documents the opoclaw plugin system: manifest format, lifecycle API, e
 
 ## Overview
 
-Plugins let you extend opoclaw by registering tools (functions the assistant can call). Plugins live in the workspace `plugins/` directory and are discovered at startup when `enable_plugins` is set in `config.toml`.
+Plugins let you extend opoclaw by adding OpenAI/OpenRouter-compatible `function` tools. Plugins live in the workspace `plugins/` directory and are discovered at startup when `enable_plugins` is set in `config.toml`.
 
 - Manifest: `plugin.json` placed in `workspace/plugins/<plugin>/plugin.json`.
 - Entry: `entry` points to the plugin entry file (TypeScript/JavaScript) — typically `plugin.ts`.
-- Lifecycle: export `activate(context)` and optional `deactivate()`.
+- Runtime contract: export `tools` and `invoke(name, args, context)`.
 
 ## Enabling plugins
 
@@ -24,13 +24,7 @@ enable_plugins = true
 plugin_dir = "workspace/plugins"
 ```
 
-Optionally enable worker sandboxing:
-
-```
-plugin_use_workers = true
-```
-
-`plugin_use_workers` attempts to isolate plugin execution in a Worker process for improved security and stability.
+Worker execution is now the only supported runtime for plugins.
 
 ## Manifest (plugin.json)
 
@@ -41,12 +35,7 @@ Minimal example:
   "name": "example-echo-plugin",
   "version": "0.1.0",
   "entry": "plugin.ts",
-  "description": "Example plugin: registers a tool.",
-  "permissions": {
-    "fileSystem": ["workspace"],
-    "tools": ["echo", "test_echo"]
-  },
-  "hooks": ["onMessage"]
+  "description": "Example plugin: adds one tool."
 }
 ```
 
@@ -55,100 +44,68 @@ Key fields
 - `name` (string, required): unique plugin id.
 - `version` (string): semver of the plugin.
 - `entry` (string): entry file relative to plugin directory (defaults to `plugin.ts`).
-- `permissions` (object): requested permissions (see Security section).
-- `mounts` (object, optional): plugin-declared mounts (validated by operator config).
-- `hooks` (array): events plugin intends to use (optional, informational).
 
-## Plugin API (context)
+Legacy fields are rejected: `permissions`, `mounts`, and `hooks`.
 
-When a plugin is activated the runtime calls `await activate(context)` where `context` exposes a small API:
+## Plugin API
 
-- `config`: readonly snapshot of `OpoclawConfig`.
-- `manifest`: parsed manifest object.
-- `root`: absolute plugin folder path.
-- `registerTool(descriptor, handler)`: register a tool the model can call. `descriptor` must include `function.name` (the callable name) and parameters. `handler(args)` must return a string result.
-- `unregisterTool(id)`: unregister a previously registered tool.
-- `readFile(path)`: read a workspace file (requires `fileSystem` permission).
-- `editFile(path, content)`: write a workspace file (requires `fileSystem` permission).
-- `log(...args)`: plugin logging (writes to opoclaw logs).
-- `checkPermission(permissionString)`: query whether the plugin manifest grants the permission (granular format supported, e.g. `tools:test_echo`).
-- `getMounts()`: read-only snapshot of mounts from config.
+Plugins must export:
 
-Return values and errors must be safe strings; the runtime will coerce results to strings when returning to tools.
+- `tools`: array of OpenAI `function` tool descriptors.
+- `invoke(name, args, context)`: handler called by runtime when a plugin tool is invoked.
+- optional `deactivate()` for cleanup.
+
+No direct runtime context API is provided (`registerTool`, `readFile`, `editFile`, `checkPermission`, and hooks are removed).
+
+Type helpers are exported from `src/plugin_api.ts` (`OpenAIFunctionTool`, `PluginModule`, and related protocol/message types).
 
 ## Example plugin (plugin.ts)
 
 The onboarding scaffold includes a minimal plugin at `workspace/plugins/example-echo-plugin`.
+There is also an authoring template at `workspace/plugins/_template`.
 
-Example `plugin.ts` outline:
+Example `plugin.ts`:
 
 ```ts
-export async function activate(context) {
-  context.log('Activating example plugin');
-  context.registerTool({ function: { name: 'echo', description: 'Echo text', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } } }, async (args) => {
-    return `echo:${String(args.text || '')}`;
-  });
-}
+export const tools = [
+  {
+    type: "function",
+    function: {
+      name: "echo",
+      description: "Echo text",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string" } },
+        required: ["text"]
+      }
+    }
+  }
+];
 
-export async function deactivate() {
-  // unregister if needed
+export async function invoke(name, args) {
+  if (name === "echo") {
+    return `echo:${String(args?.text || "")}`;
+  }
+  throw new Error(`Unknown tool: ${name}`);
 }
 ```
+
+For strict typing, the template uses `satisfies PluginModule` from `src/plugin_api.ts`.
 
 ## Worker-based execution
 
-When `plugin_use_workers = true`, each plugin runs in its own isolated Worker process:
+Each plugin runs in its own isolated Worker process:
 
 - **Isolation**: Plugins run in a separate Node.js worker, preventing crashes from affecting the main opoclaw process.
-- **Communication**: Host and worker communicate via `postMessage` RPC — the plugin posts messages to the host, not direct function calls.
-- **Activation**: Worker loads the plugin entry file and calls `await activate(context)` where `context` is a proxy object (not the direct API).
-- **Tool registration**: Plugins post `{ type: 'registerTool', ... }` messages instead of calling `registerTool()` directly.
+- **Communication**: Host and worker communicate via a minimal protocol: `ready`, `invoke`, `invokeResult`, `shutdown`.
+- **Activation**: Worker loads plugin entry file, validates exported `tools`, and exposes `invoke`.
 - **Shutdown**: When a plugin is unloaded or opoclaw shuts down, the worker is terminated.
 
-Example worker-based plugin:
-
-```ts
-// plugin.ts (runs inside worker)
-export async function activate(context) {
-  // context.log becomes postMessage({ type: 'log', args: [...] })
-  context.log('Worker activating');
-
-  // Register tools via message passing
-  self.postMessage({
-    type: 'registerTool',
-    descriptor: {
-      function: {
-        name: 'echo',
-        description: 'Echo text',
-        parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }
-      }
-    },
-    handler: async (args) => `echo:${args.text}`
-  });
-}
-```
-
-Key differences from non-worker mode:
-- No direct API access — use `self.postMessage()` to communicate with host
-- `context` is a limited proxy (read-only config, manifest, etc.)
-- Tool handlers run inside worker, still return strings
-- Errors in worker don't crash the main process
+Errors in worker do not crash the main process.
 
 ## Security & Permissions
 
-The manifest `permissions` object limits what a plugin can do. Examples:
-
-- `fileSystem: ["workspace"]` — allow reading/writing workspace files.
-- `tools: ["read_file", "echo"]` — limit which tool IDs a plugin can register/use.
-- `network: true` — allow outbound network (not enabled by default).
-- `run_shell: true` — allow running shell commands (dangerous).
-
-Principles:
-
-- Default deny: plugins must explicitly request privileges.
-- Operator approval: the operator should enable plugins and review manifests.
-- Runtime enforcement: `readFile`, `editFile`, and `registerTool` check manifest-declared permissions.
-- Sandboxing: prefer `plugin_use_workers = true` to isolate plugin runtime (Worker-based sandbox).
+Plugins can only contribute tools. Workspace file and host mutation APIs are not exposed to plugins.
 
 ## CI & Tests
 
@@ -156,15 +113,14 @@ Add the following checks to CI:
 
 - Manifest validation: `tests/plugins.test.ts` should validate manifest schema and ensure no path traversal in `entry`.
 - Unit tests: plugin discovery and `registerTool` behavior.
-- Security tests: ensure plugins without permissions cannot call `readFile` or register restricted tools.
+- Security tests: ensure legacy APIs are rejected and only valid `function` tools are accepted.
 - Lint & Typecheck: `tsc` and ESLint.
 
 ## Best practices for plugin authors
 
-- Keep `activate()` idempotent and `deactivate()` clean up registrations.
-- Return plain strings from tool handlers.
-- Avoid performing long-running CPU tasks in-process; prefer worker mode.
-- Request minimal permissions required.
+- Keep `invoke()` deterministic and cheap.
+- Return plain strings or JSON-serializable values from handlers.
+- Validate arguments defensively inside plugin code.
 - Provide a short `README.md` inside the plugin folder describing usage.
 
 ## Troubleshooting

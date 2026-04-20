@@ -426,6 +426,10 @@ export function unregisterTool(id: string) {
     try { delete (TOOLS as any)[id]; } catch {}
 }
 
+export function listPluginToolDescriptors(): any[] {
+    return Array.from(PLUGIN_TOOL_HANDLERS.values()).map((entry) => entry.descriptor);
+}
+
 const CACHE_DIR = path.resolve(import.meta.dir, "../cache/embeddings");
 const SIMILARITY_THRESHOLD = 0.65;
 

@@ -1,6 +1,6 @@
 import { resolve } from "path";
 import { existsSync, readFileSync } from "fs";
-import { TOOLS } from "./tools";
+import { TOOLS, listPluginToolDescriptors } from "./tools";
 import * as toml from "@iarna/toml";
 
 const DEFAULT_CONFIG_FILE = resolve(import.meta.dir, "../config.toml");
@@ -75,11 +75,9 @@ export interface OpoclawConfig {
     mounts?: Record<string, string>;
     search_provider?: "duckduckgo" | "tavily";
     tavily_api_key?: string;
-    // Plugin settings
+    // Plugin settings (tool-only worker runtime)
     enable_plugins?: boolean;
     plugin_dir?: string;
-    // Whether to attempt running plugins in isolated workers (not fully implemented)
-    plugin_use_workers?: boolean;
     show_update_notification?: boolean;
 }
 
@@ -118,7 +116,7 @@ export function getModelId(config: OpoclawConfig): string {
 }
 
 export function getTools(config: OpoclawConfig): any[] {
-    const tools = [
+    const tools: any[] = [
         TOOLS.send_file,
         TOOLS.search,
         TOOLS.edit_config,
@@ -145,6 +143,16 @@ export function getTools(config: OpoclawConfig): any[] {
 
     if (config.advanced_tools ?? false) {
         tools.push(TOOLS.mkdir, TOOLS.rm, TOOLS.mv, TOOLS.cp);
+    }
+
+    const pluginTools = listPluginToolDescriptors();
+    for (const pluginTool of pluginTools) {
+        const pluginToolName = pluginTool?.function?.name;
+        if (typeof pluginToolName !== "string" || !pluginToolName) continue;
+        const exists = tools.some((tool) => tool?.function?.name === pluginToolName);
+        if (!exists) {
+            tools.push(pluginTool);
+        }
     }
 
     return tools;
@@ -180,8 +188,4 @@ export function pluginsEnabled(config: OpoclawConfig): boolean {
 export function getPluginDir(config: OpoclawConfig): string {
     // If config provides plugin_dir use it, otherwise default to workspace/plugins relative to repo
     return config.plugin_dir || resolve(import.meta.dir, "../workspace/plugins");
-}
-
-export function pluginUseWorkers(config: OpoclawConfig): boolean {
-    return config.plugin_use_workers ?? false;
 }
