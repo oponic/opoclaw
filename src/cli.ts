@@ -836,7 +836,7 @@ Toggle: channel.discord.allow_bots, enable_reasoning, reasoning_summary.
     case undefined:
       console.log(`
 ${banner()}
-${k.blue("lightweight AI agent framework")}
+${k.blue("A lightweight AI agent framework")}
 
 ${k.bold("Commands:")}
   usage              Show token usage (last 24h) and cost
@@ -860,6 +860,8 @@ ${k.bold("Commands:")}
 ${k.bold("Config:")}  ${getConfigPath()}
 ${k.bold("Workspace:")}  ${WORKSPACE_DIR}
 ${k.bold("Usage:")}  ${USAGE_FILE}
+
+${k.magenta("Updated cli by Dolkip \\^o^/")}
 `);
       break;
 
