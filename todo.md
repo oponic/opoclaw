@@ -34,5 +34,3 @@
 - [ ] Expand test coverage beyond unit tests
 - [ ] Add API documentation for internal interfaces
 - [ ] Resolve TypeScript as devDependency instead of peerDependency
-- [ ] Rewrite plugin workers to use Bun's builtin worker system
-- [ ] Sacrifice to the Bun gods
