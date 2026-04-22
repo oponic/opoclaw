@@ -12,3 +12,4 @@ cache/
 .gateway.hibernate
 logs/
 .claude/
+package-lock.json

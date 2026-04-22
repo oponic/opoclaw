@@ -31,17 +31,16 @@ const SYSTEMD_PATH = `/etc/systemd/system/${SYSTEMD_NAME}`;
 
 // ── Colors ─────────────────────────────────────────────────────────────────
 
-const B = "\x1b[1m";
-const C = "\x1b[36m";
-const G = "\x1b[32m";
-const Y = "\x1b[33m";
-const R = "\x1b[31m";
-const X = "\x1b[0m";
+import k from "kleur";
 
-const info = (s: string) => console.log(`${C}[opoclaw]${X} ${s}`);
-const ok = (s: string) => console.log(`${G}✓${X} ${s}`);
-const warn = (s: string) => console.log(`${Y}⚠${X} ${s}`);
-const err = (s: string) => console.error(`${R}✗${X} ${s}`);
+const info = (s: string) => console.log(`${k.cyan("[opoclaw]")} ${s}`);
+const ok = (s: string) => console.log(`${k.green("✓")} ${s}`);
+const warn = (s: string) => console.log(`${k.yellow("⚠")} ${s}`);
+const err = (s: string) => console.error(`${k.red("✗")} ${s}`);
+const dim = (s: string) => k.gray(s);
+const bold = (s: string) => k.bold(s);
+const opoclaw = () => k.dim().bold("opo") + k.bold("claw");
+const banner = () => k.bold("        ▜\n") + k.dim().bold("▛▌▛▌▛▌") + k.bold("▛▘▐ ▀▌▌▌▌\n") + k.dim().bold("▙▌▙▌▙▌") + k.bold("▙▖▐▖█▌▚▚▘\n") + k.dim().bold("  ▌");
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -81,7 +80,7 @@ async function showUsage() {
     cost += s.cost || 0;
   }
 
-  console.log(`\n${B}═══ opoclaw usage (last 24h) ═══${X}\n`);
+  console.log(`\n${k.cyan().bold("═══ ")}${opoclaw()} ${k.cyan().bold("usage (last 24h) ═══")}\n`);
 
   console.log(`  Requests:    ${recent.length}`);
   console.log(`  Input:       ${(input / 1000).toFixed(1)}k tokens`);
@@ -90,7 +89,7 @@ async function showUsage() {
   console.log(`  Cache write: ${(cacheWrite / 1000).toFixed(1)}k tokens`);
   console.log(`  Cost:        $${cost.toFixed(4)}`);
 
-  console.log(`\n${B}─── all-time ───${X}\n`);
+  console.log(`\n${k.gray().bold("─── all-time ───")}\n`);
   console.log(`  Total cost:  $${data.total.cost.toFixed(4)}`);
   console.log(`  Total reqs:  ${data.sessions.length}`);
   console.log();
@@ -115,8 +114,8 @@ async function checkForUpdate(silent = false): Promise<string | null> {
 
     if (latestTag && latestTag !== currentTag) {
       if (!silent) {
-        console.log(`${Y}📦 Update available: ${currentTag} → ${latestTag}${X}`);
-        console.log(`   Run ${B}opoclaw update${X} to upgrade.\n`);
+        console.log(`${k.yellow("📦 Update available:")} ${currentTag} → ${latestTag}`);
+        console.log(`   Run ${opoclaw()} ${k.bold("update")} to upgrade.\n`);
       }
       return latestTag;
     }
@@ -266,10 +265,10 @@ async function gatewayStart() {
 
   // Pipe stdout/stderr with prefix
   child.stdout?.on("data", (d: Buffer) => {
-    process.stdout.write(`${C}[gateway]${X} ${d}`);
+    process.stdout.write(`${k.cyan("[gateway]")} ${d}`);
   });
   child.stderr?.on("data", (d: Buffer) => {
-    process.stderr.write(`${C}[gateway]${X} ${d}`);
+    process.stderr.write(`${k.cyan("[gateway]")} ${d}`);
   });
 
   let childExited = false;
@@ -729,7 +728,7 @@ async function main() {
         case "hibernate": gatewayHibernate(); break;
         case "status":  gatewayStatus(); break;
         default:
-          console.log("Usage: opoclaw gateway {start|stop|restart|hibernate|status}");
+          console.log(`Usage: ${opoclaw()} gateway {start|stop|restart|hibernate|status}`);
       }
       break;
 
@@ -753,7 +752,7 @@ async function main() {
       const svcCmd = args[1];
       if (svcCmd === "install") installService();
       else if (svcCmd === "remove") uninstallService();
-      else console.log("Usage: opoclaw service {install|remove}");
+      else console.log(`Usage: ${opoclaw()} service {install|remove}`);
       break;
 
     case "migrate":
@@ -771,61 +770,61 @@ async function main() {
     case "v":
       try {
         const tag = exec("git describe --tags --abbrev=0 2>/dev/null", { cwd: OP_DIR });
-        console.log(`opoclaw ${tag}`);
+        console.log(`${opoclaw()} ${tag}`);
       } catch {
-        console.log("opoclaw (unknown version — no git tags found)");
+        console.log(`${opoclaw()} (unknown version — no git tags found)`);
       }
       break;
 
     case "explainer":
     case "explain":
       console.log(`
-${B}How opoclaw works${X}
+${k.cyan().bold("How ")}${opoclaw()}${k.cyan().bold(" works")}
 
-opoclaw is a Discord bot framework. When someone mentions the bot:
+${opoclaw()} is a Discord bot framework. When someone mentions the bot:
 
-1. ${B}Message received${X} — Discord event triggers the MessageCreate handler.
+1. ${k.bold("Message received")} — Discord event triggers the MessageCreate handler.
    Only messages that @mention the bot (or reply to it) are processed.
    Own messages are always ignored. Other bots are ignored unless
    channel.discord.allow_bots=true in config.toml.
 
-2. ${B}System prompt loaded${X} — Three workspace files are read and composed:
+2. ${k.bold("System prompt loaded")} — Three workspace files are read and composed:
    - SOUL.md — personality, tone, rules, vibe
    - IDENTITY.md — name, appearance, self-description
    - AGENTS.md — operating instructions, memory system, safety rules
    These form the system prompt sent to the LLM.
 
-3. ${B}Channel history${X} — Last 50 messages in the channel are fetched,
+3. ${k.bold("Channel history")} — Last 50 messages in the channel are fetched,
    formatted as [name]: content, and sent as conversation context.
 
-4. ${B}LLM call${X} — The composed prompt + history is sent to the configured
+4. ${k.bold("LLM call")} — The composed prompt + history is sent to the configured
    provider (OpenRouter, Ollama, or custom endpoint). The model generates
    a response. If reasoning is enabled, the model's thinking tokens are
    captured during streaming.
 
-5. ${B}Tools${X} — The model can request tool calls (file operations, etc.).
+5. ${k.bold("Tools")} — The model can request tool calls (file operations, etc.).
    Tools execute in a loop (max 20 iterations) until the model stops
    requesting them or sends a final text response.
 
-6. ${B}Response sent${X} — The reply is sent back to Discord, split into
+6. ${k.bold("Response sent")} — The reply is sent back to Discord, split into
    chunks if over 1990 characters.
 
-${B}Security profile${X}
+${k.bold("Security profile")}
 
-- ${B}No data exfiltration${X} — workspace files (SOUL, IDENTITY, AGENTS,
+- ${k.bold("No data exfiltration")} — workspace files (SOUL, IDENTITY, AGENTS,
   MEMORY) are sent to the LLM provider as part of the prompt. Do not
   put secrets in these files.
-- ${B}Token safety${X} — Discord token and API keys live in config.toml,
+- ${k.bold("Token safety")} — Discord token and API keys live in config.toml,
   never sent to the LLM or exposed in responses.
-- ${B}Tool sandboxing${X} — file tools only read from the workspace directory.
+- ${k.bold("Tool sandboxing")} — file tools only read from the workspace directory.
   The send_file tool reads workspace files and attaches them to messages.
-- ${B}No system commands${X} — the bot cannot run shell commands or access
+- ${k.bold("No system commands")} — the bot cannot run shell commands or access
   your filesystem outside the workspace.
-- ${B}Rate limiting${X} — max 20 agent iterations per message prevents
+- ${k.bold("Rate limiting")} — max 20 agent iterations per message prevents
   runaway loops.
 
-${B}Config${X}
-config.toml lives at the project root. Onboard wizard: opoclaw onboard.
+${k.bold("Config")}
+config.toml lives at the project root. Onboard wizard: ${opoclaw()} onboard.
 Channels live under [channel.*]. Providers live under [provider.*].
 Toggle: channel.discord.allow_bots, enable_reasoning, reasoning_summary.
 `);
@@ -836,9 +835,11 @@ Toggle: channel.discord.allow_bots, enable_reasoning, reasoning_summary.
     case "-h":
     case undefined:
       console.log(`
-${B}opoclaw${X} — lightweight AI agent framework
+${banner()}
 
-${B}Commands:${X}
+${k.blue("A lightweight AI agent framework")}
+
+${k.bold("Commands:")}
   usage              Show token usage (last 24h) and cost
   gateway start      Start the bot gateway
   gateway stop       Stop the gateway
@@ -847,25 +848,27 @@ ${B}Commands:${X}
   gateway status     Check if gateway is running
   update [unstable]  Pull latest release and restart (use unstable channel)
   check-update       Check for available updates
-  install            Install opoclaw command + optional service
+  install            Install ${opoclaw()} command + optional service
   service install    Install auto-start service (systemd/launchd)
   service remove     Remove auto-start service
   uninstall          Remove command, service, and clean up
-  explainer          How opoclaw works
+  explainer          How ${opoclaw()} works
   migrate            Upgrade config (JSON→TOML, camelCase→snake_case, sections)
   onboard            Run onboarding wizard
   version            Print current version (git tag)
   help               Show this help
 
-${B}Config:${X}  ${getConfigPath()}
-${B}Workspace:${X}  ${WORKSPACE_DIR}
-${B}Usage:${X}  ${USAGE_FILE}
+${k.bold("Config:")}  ${getConfigPath()}
+${k.bold("Workspace:")}  ${WORKSPACE_DIR}
+${k.bold("Usage:")}  ${USAGE_FILE}
+
+${k.magenta("Updated cli by Dolkip \\^o^/")}
 `);
       break;
 
     default:
       err(`Unknown command: ${cmd}`);
-      console.log("Run `opoclaw help` for usage.");
+      console.log(`Run \`${opoclaw()} help\` for usage.`);
       process.exit(1);
   }
 }

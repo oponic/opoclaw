@@ -4,7 +4,6 @@ import { dirname, join } from "path";
 import { mkdir } from "fs/promises";
 import { fileURLToPath } from "url";
 import { readFileAsync, editFile } from "./workspace.ts";
-import { existsSync } from "fs";
 
 interface Message {
     role: "system" | "user" | "assistant" | "tool";

@@ -361,24 +361,117 @@ async function main() {
             version: "0.1.0",
             entry: "plugin.ts",
             description: "Example plugin: registers one tool 'echo'.",
-            permissions: { fileSystem: ["workspace"], tools: ["read_file"] },
         };
         writeFileSync(resolve(exampleDir, "plugin.json"), JSON.stringify(manifest, null, 2));
-        const pluginTs = `export async function activate(context) {
-    context.log('Activating example-echo-plugin');
-    context.registerTool({ id: 'echo', function: { name: 'echo', description: 'Echo input text', parameters: { type: 'object', properties: { text: { type: 'string', description: 'Text to echo back.' } }, required: ['text'] } } }, async (args) => {
-        return String(args.text || '');
-    });
+        const pluginTs = `export const tools = [
+    {
+        type: 'function',
+        function: {
+            name: 'echo',
+            description: 'Echo input text',
+            parameters: {
+                type: 'object',
+                properties: {
+                    text: { type: 'string', description: 'Text to echo back.' }
+                },
+                required: ['text']
+            }
+        }
+    }
+];
+
+export async function invoke(name, args) {
+    if (name === 'echo') {
+        return String(args?.text || '');
+    }
+    throw new Error('Unknown tool: ' + String(name));
 }
 
 export async function deactivate() {
-    // cleanup if needed
+    // optional cleanup
 }
 `;
         writeFileSync(resolve(exampleDir, "plugin.ts"), pluginTs);
         ok('Created example plugin scaffold in workspace/plugins/example-echo-plugin');
     } else {
         info('Example plugin scaffold already exists — skipped');
+    }
+
+    const templateDir = resolve(WORKSPACE_DIR, "plugins", "_template");
+    if (!existsSync(templateDir)) {
+        mkdirSync(templateDir, { recursive: true });
+        const templateManifest = {
+            name: "my-plugin",
+            version: "0.1.0",
+            entry: "plugin.ts",
+            description: "A minimal tool-only plugin template.",
+        };
+        writeFileSync(resolve(templateDir, "plugin.json"), JSON.stringify(templateManifest, null, 2));
+        const templatePluginTs = `import type { OpenAIFunctionTool, PluginModule } from "../../../src/plugin_api.ts";
+
+export const tools = [
+    {
+        type: 'function',
+        function: {
+            name: 'my_plugin_echo',
+            description: 'Echoes back input text.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    text: {
+                        type: 'string',
+                        description: 'Text to echo.'
+                    }
+                },
+                required: ['text']
+            }
+        }
+    }
+] satisfies OpenAIFunctionTool[];
+
+export async function invoke(name: string, args: Record<string, unknown>): Promise<string> {
+    if (name === 'my_plugin_echo') {
+        const text = (args as { text?: unknown }).text;
+        return String(text || '');
+    }
+    throw new Error('Unknown tool: ' + String(name));
+}
+
+export async function deactivate(): Promise<void> {
+    // optional cleanup
+}
+
+const _pluginTypeCheck = { tools, invoke, deactivate } satisfies PluginModule;
+void _pluginTypeCheck;
+`;
+        writeFileSync(resolve(templateDir, "plugin.ts"), templatePluginTs);
+        const templateReadme = `# Plugin template
+
+1. Copy this folder to \`workspace/plugins/<your-plugin-name>\`.
+2. Update \`plugin.json\` (\`name\`, \`description\`).
+3. Rename tool names to a unique prefix (for example \`my_plugin_*\`).
+4. Keep tools OpenAI/OpenRouter \`function\` tools only.
+
+Contract:
+
+- Export \`tools\` (array of function tool descriptors).
+- Export \`invoke(name, args, context)\`.
+- Optionally export \`deactivate()\`.
+
+Context filesystem helpers:
+
+- \`context.fs.plugin.*\` for files under your plugin directory.
+- \`context.fs.workspace.*\` for files under the workspace root.
+
+Notes:
+
+- Legacy plugin APIs are removed.
+- \`permissions\`, \`mounts\`, and \`hooks\` in \`plugin.json\` are rejected.
+`;
+        writeFileSync(resolve(templateDir, "README.md"), templateReadme);
+        ok('Created plugin template in workspace/plugins/_template');
+    } else {
+        info('Plugin template already exists — skipped');
     }
 
     // ── Done ───────────────────────────────────────────────────────────────

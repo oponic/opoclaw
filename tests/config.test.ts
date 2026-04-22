@@ -12,8 +12,10 @@ import {
   loadConfig,
   getExposedCommands,
   getSemanticSearchEnabled,
+  getTools,
   useTomlFiles,
 } from "../src/config.ts";
+import { registerTool, unregisterTool } from "../src/tools.ts";
 
 async function withTempConfig(contents: string, fn: (path: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "opoclaw-config-"));
@@ -74,5 +76,28 @@ describe("config TOML", () => {
   test("feature toggles default to false", () => {
     expect(getSemanticSearchEnabled({} as any)).toBe(false);
     expect(useTomlFiles({} as any)).toBe(false);
+  });
+
+  test("plugin descriptors are gated by enable_plugins", () => {
+    const pluginToolId = "cfg_plugin_tool";
+    const descriptor = {
+      type: "function",
+      function: {
+        name: pluginToolId,
+        description: "Config test plugin tool",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    };
+
+    registerTool(pluginToolId, descriptor, async () => "ok", "config-test");
+    try {
+      const disabledTools = getTools({ enable_plugins: false } as any);
+      expect(disabledTools.some((t: any) => t?.function?.name === pluginToolId)).toBe(false);
+
+      const enabledTools = getTools({ enable_plugins: true } as any);
+      expect(enabledTools.some((t: any) => t?.function?.name === pluginToolId)).toBe(true);
+    } finally {
+      unregisterTool(pluginToolId);
+    }
   });
 });

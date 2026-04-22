@@ -23,6 +23,7 @@ import { pendingFileSend, clearPendingFileSend } from "../tools.ts";
 
 import { getSemanticSearchEnabled, getVisionEnabled, loadConfig, useTomlFiles, getActiveProvider } from "../config.ts";
 import { listSkills } from "../skills.ts";
+import { loadSystemPromptBase, buildSystemPrompt, createSystemPromptContext } from "../system-prompt.ts";
 
 const client = new Client({
     intents: [
@@ -165,35 +166,6 @@ function pickLatestTag(tags: string[], channel: "stable" | "unstable", currentTa
         if (isStableTag(tag)) return tag;
     }
     return null;
-}
-
-async function loadSystemPromptBase(): Promise<string> {
-    try {
-        return await readFileFs(SYSTEM_PROMPT_FILE, "utf-8");
-    } catch {
-        return "";
-    }
-}
-
-function renderSystemPrompt(template: string): string {
-    const now = new Date();
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    const date = now.toLocaleDateString("en-US", {
-        timeZone: tz,
-        year: "numeric",
-        month: "long",
-        day: "2-digit",
-    });
-    const time = now.toLocaleTimeString("en-US", {
-        timeZone: tz,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-    });
-    return template
-        .replaceAll("{{DATE}}", date)
-        .replaceAll("{{TIME}}", time)
-        .replaceAll("{{TIMEZONE}}", tz);
 }
 
 function formatMentions(text: string, msg: Message): string {
@@ -379,29 +351,23 @@ export async function startDiscord(): Promise<void> {
             listSkills(),
         ]);
 
-        const systemPromptParts: string[] = [];
-        if (systemBase) systemPromptParts.push(renderSystemPrompt(systemBase));
-        if (soulContent) systemPromptParts.push(soulContent);
-        if (identityContent) systemPromptParts.push("\n## Your Identity\nThis is your " + (useToml ? "identity.toml" : "IDENTITY.md") + ".\n```\n" + identityContent + "\n```");
-        if (agentsContent) systemPromptParts.push("\n## Operating Instructions\n" + agentsContent);
-        if (memoryContent) systemPromptParts.push("\n## Memory\nThis is your " + (useToml ? "memory.toml" : "MEMORY.md") + ". You can edit that file, but be careful not to accidentally erase information in it.\n```\n" + memoryContent + "\n```");
-        if (getSemanticSearchEnabled(config)) {
-            systemPromptParts.push("\n## Semantic Search\nYou have access to a semantic search command in your shell. Use `semantic-search <query>` and it'll return lines in any file that match embeddings. You don't need to worry about gaming this, remember it's semantic and not keyword based, so even just a description of what you're looking for can work. The command caches efficiently as well.\nThis is the recommended way to search through your memory. You can do multiple searches at once using normal shell syntax like semicolons: `semantic-search <query1>; semantic-search <query2>`");
-        }
-        if (skills.length > 0) {
-            systemPromptParts.push(
-                `\n## Skills\nAvailable skills: ${skills.map((s) => `\`${s}\``).join(", ")}\nTo use a skill, call the use_skill tool with the skill name. It will return the skill's SKILL.md instructions before you apply them.`
-            );
-        }
-    systemPromptParts.push(
-        `\n## Discord Context\nChannel ID: ${msg.channel.id}\nMessage IDs appear as \`[id:...]\` in history entries. Reactions are shown at the end like \`(reactions: 😄×2)\`. Use the \`react_message\` tool with \`channel_id\` and \`message_id\` to react.\nNever include \`[id:...]\` in your replies; IDs are only for tool calls.`
-    );
-    if (useToml) {
-        systemPromptParts.push("\n## TOML Editing\nIn your shell, you have a convenient CLI for easy editing. You can use `toml <file> <key> push <value>` to push a value to a key, or `toml <file> <key> remove <value>` to remove a value. If the key or file doesn't exist, it will be created for you.\nThis is the primary way you should be managing memory. You can for example use `toml memory.toml notes push \"<something you want to remember>\"` to add a note to your memory, which will persist across sessions.");
-    }
-    const pollSummary = getPollSummary(msg.channel.id);
-    if (pollSummary) systemPromptParts.push(pollSummary);
-        const systemPrompt = systemPromptParts.join("\n") || "You are a helpful assistant.";
+const extraSections: string[] = [
+            `\n## Discord Context\nChannel ID: ${msg.channel.id}\nMessage IDs appear as \`[id:...]\` in history entries. Reactions are shown at the end like \`(reactions: 😄×2)\`. Use the \`react_message\` tool with \`channel_id\` and \`message_id\` to react.\nNever include \`[id:...]\` in your replies; IDs are only for tool calls.`,
+        ];
+        const pollSummary = getPollSummary(msg.channel.id);
+        if (pollSummary) extraSections.push(pollSummary);
+
+        const systemPrompt = buildSystemPrompt({
+            systemBase,
+            soulContent,
+            identityContent,
+            agentsContent,
+            memoryContent,
+            skills,
+            useToml,
+            config,
+            extraSections,
+        });
 
     const userText = formatMentions(msg.content, msg).trim();
     const idPrefix = `[id:${msg.id}] `;
