@@ -818,7 +818,9 @@ export async function startDiscord(): Promise<void> {
             return undefined;
         };
 
-        const sessionId = `opoclaw-discord-${client.user!.id}-${msg.channelId}-${msg.id}`;
+        const sessionId = config.provider?.openrouter?.use_session_ids !== false
+            ? `opoclaw-discord-${client.user!.id}-${msg.channelId}-${msg.id}`
+            : undefined;
 
         try {
             const { text: responseText, reasoningSummary } = await runAgent(

@@ -31,7 +31,7 @@ export function formatTOMLValue(value: any): string {
 export interface OpoclawConfig {
     provider?: {
         active?: "openrouter" | "ollama" | "custom";
-        openrouter?: { api_key?: string; model?: string; base_url?: string; vision?: boolean };
+        openrouter?: { api_key?: string; model?: string; base_url?: string; vision?: boolean; use_session_ids?: boolean };
         ollama?: { base_url?: string; model?: string };
         custom?: {
             base_url?: string;
