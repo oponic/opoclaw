@@ -37,6 +37,16 @@ describe("workspace", () => {
 
   test("readFile throws on missing file", async () => {
     await cleanup();
-    expect(() => readFile("__test__/missing.txt")).toThrow();
+    await expect(readFile("__test__/missing.txt")).rejects.toThrow();
+  });
+
+  test("path traversal is rejected", async () => {
+    await expect(readFile("../package.json")).rejects.toThrow(/Access denied/);
+  });
+
+  test("editFile creates parent directories", async () => {
+    await cleanup();
+    await editFile("__test__/nested/deep/file.txt", "gamma");
+    expect(await readFile("__test__/nested/deep/file.txt")).toBe("gamma");
   });
 });

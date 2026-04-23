@@ -4,6 +4,25 @@ import { TOOLS, listPluginToolDescriptors } from "./tools";
 import * as toml from "@iarna/toml";
 
 const DEFAULT_CONFIG_FILE = resolve(import.meta.dir, "../config.toml");
+const DEFAULT_PROVIDER = "openrouter";
+const BASE_TOOLS = [
+    "send_file",
+    "search",
+    "edit_config",
+    "restart_gateway",
+    "hibernate_gateway",
+    "update_opoclaw",
+    "use_skill",
+    "list_skills",
+    "deep_research",
+    "react_message",
+    "request_permission",
+    "question",
+    "poll",
+    "shell",
+] as const;
+const BASIC_TOOL_IDS = ["read_file", "edit_file", "list_files"] as const;
+const ADVANCED_TOOL_IDS = ["mkdir", "rm", "mv", "cp"] as const;
 
 function getConfigFilePath(): string {
     return process.env.OPOCLAW_CONFIG_PATH || DEFAULT_CONFIG_FILE;
@@ -88,7 +107,11 @@ export function loadConfig(): OpoclawConfig {
         throw new Error(`config.toml not found at ${configPath}`);
     }
     const text = readFileSync(configPath, "utf-8");
-    return parseTOML(text) as unknown as OpoclawConfig;
+    const parsed = parseTOML(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error(`Invalid config at ${configPath}`);
+    }
+    return parsed as OpoclawConfig;
 }
 
 export function getConfigPath(): string {
@@ -117,34 +140,27 @@ export function getModelId(config: OpoclawConfig): string {
 }
 
 export function getTools(config: OpoclawConfig): any[] {
-    const tools: any[] = [
-        TOOLS.send_file,
-        TOOLS.search,
-        TOOLS.edit_config,
-        TOOLS.restart_gateway,
-        TOOLS.hibernate_gateway,
-        TOOLS.update_opoclaw,
-        TOOLS.use_skill,
-        TOOLS.list_skills,
-        TOOLS.deep_research,
-        TOOLS.react_message,
-        TOOLS.request_permission,
-        TOOLS.question,
-        TOOLS.poll,
-        TOOLS.shell,
-    ];
+    const toolIds = new Set<string>(BASE_TOOLS as readonly string[]);
 
     if (config.enable_web_fetch ?? true) {
-        tools.push(TOOLS.web_fetch);
+        toolIds.add("web_fetch");
     }
 
     if (config.basic_tools ?? true) {
-        tools.push(TOOLS.read_file, TOOLS.edit_file, TOOLS.list_files);
+        for (const toolId of BASIC_TOOL_IDS) {
+            toolIds.add(toolId);
+        }
     }
 
     if (config.advanced_tools ?? false) {
-        tools.push(TOOLS.mkdir, TOOLS.rm, TOOLS.mv, TOOLS.cp);
+        for (const toolId of ADVANCED_TOOL_IDS) {
+            toolIds.add(toolId);
+        }
     }
+
+    const tools = Array.from(toolIds)
+        .map((toolId) => TOOLS[toolId])
+        .filter(Boolean);
 
     if (pluginsEnabled(config)) {
         const pluginTools = listPluginToolDescriptors();
@@ -170,7 +186,7 @@ export function useTomlFiles(config: OpoclawConfig): boolean {
 }
 
 export function getActiveProvider(config: OpoclawConfig): "openrouter" | "ollama" | "custom" {
-    return config.provider?.active || "openrouter";
+    return config.provider?.active || DEFAULT_PROVIDER;
 }
 
 export function getVisionEnabled(config: OpoclawConfig): boolean {

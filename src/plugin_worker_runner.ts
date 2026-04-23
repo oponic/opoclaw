@@ -151,8 +151,8 @@ async function initializePlugin(msg: HostInitMessage): Promise<void> {
     });
 }
 
-(globalThis as any).onmessage = async (ev: MessageEvent<PluginHostMessage>) => {
-    const msg = ev.data;
+(globalThis as any).onmessage = async (ev: MessageEvent) => {
+    const msg = ev.data as PluginHostMessage;
     if (!msg || typeof msg !== "object") return;
 
     if (msg.type === "init") {

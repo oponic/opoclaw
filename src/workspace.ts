@@ -1,5 +1,13 @@
-import { resolve, join, relative, dirname } from "path";
-import { existsSync, statSync, mkdirSync, rmSync, renameSync, copyFileSync, readdirSync } from "fs";
+import { dirname, join, relative, resolve, sep } from "path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "fs";
 
 export const WORKSPACE_DIR = resolve(import.meta.dir, "../workspace");
 
@@ -9,7 +17,10 @@ function normalizeRelativePath(relativePath: string): string {
 
 function assertWithinRoot(root: string, target: string, relativePath: string): void {
   const rel = relative(root, target);
-  if (rel.startsWith("..") || rel.includes("/../")) {
+  if (rel === ".." || rel.startsWith(`..${sep}`) || rel.includes(`${sep}..${sep}`) || rel === "") {
+    if (rel === "") {
+      return;
+    }
     throw new Error(`Access denied: "${relativePath}" escapes the mount root.`);
   }
 }
@@ -42,20 +53,12 @@ function safePath(relativePath: string, mounts?: Record<string, string>): string
   return resolveMountPath(relativePath, mounts).abs;
 }
 
-export function readFile(relativePath: string, mounts?: Record<string, string>): string {
+export async function readFile(relativePath: string, mounts?: Record<string, string>): Promise<string> {
   const abs = safePath(relativePath, mounts);
   if (!existsSync(abs)) {
     throw new Error(`File not found: ${relativePath}`);
   }
-  return Bun.file(abs).text() as unknown as string;
-}
-
-export async function readFileAsync(relativePath: string, mounts?: Record<string, string>): Promise<string> {
-  const abs = safePath(relativePath, mounts);
-  if (!existsSync(abs)) {
-    throw new Error(`File not found: ${relativePath}`);
-  }
-  return Bun.file(abs).text();
+  return await Bun.file(abs).text();
 }
 
 export function getFilePath(relativePath: string, mounts?: Record<string, string>): string {
@@ -72,7 +75,7 @@ export async function editFile(
   mounts?: Record<string, string>
 ): Promise<void> {
   const abs = safePath(relativePath, mounts);
-  // good riddance stupid checky thingy, it could be bypassed by shell anyway
+  mkdirSync(dirname(abs), { recursive: true });
   await Bun.write(abs, newContent);
 }
 
@@ -153,3 +156,5 @@ export async function listFiles(mounts?: Record<string, string>): Promise<string
 
   return files.sort();
 }
+
+export const readFileAsync = readFile;

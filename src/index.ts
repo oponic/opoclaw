@@ -1,23 +1,54 @@
 import { startDiscord } from "./channels/discord.ts";
 import { startIRC } from "./channels/irc.ts";
-import { loadPlugins } from "./plugins.ts";
 import { loadConfig } from "./config.ts";
+import { loadPlugins } from "./plugins.ts";
 
-// Start enabled channels with error handling
-try {
-    const cfg = loadConfig();
-    await loadPlugins(cfg);
+type ChannelStarter = {
+    name: string;
+    enabled: boolean;
+    required: boolean;
+    start: () => Promise<void>;
+};
 
-    await startDiscord();
-} catch (err: any) {
-    console.error(`Discord channel failed to start: ${err.message}`);
-    // Exit with error code to indicate failure
-    process.exit(1);
+function buildChannelStarters() {
+    const config = loadConfig();
+    return {
+        config,
+        starters: [
+            {
+                name: "Discord",
+                enabled: config.channel?.discord?.enabled ?? false,
+                required: true,
+                start: startDiscord,
+            },
+            {
+                name: "IRC",
+                enabled: config.channel?.irc?.enabled ?? false,
+                required: false,
+                start: startIRC,
+            },
+        ] satisfies ChannelStarter[],
+    };
 }
 
-try {
-    await startIRC();
-} catch (err: any) {
-    console.error(`IRC channel failed to start: ${err.message}`);
-    // Don't exit if only IRC fails, but log error
+async function main(): Promise<void> {
+    const { config, starters } = buildChannelStarters();
+    await loadPlugins(config);
+
+    for (const starter of starters) {
+        if (!starter.enabled) {
+            continue;
+        }
+
+        try {
+            await starter.start();
+        } catch (error: any) {
+            console.error(`${starter.name} channel failed to start: ${error?.message || error}`);
+            if (starter.required) {
+                process.exit(1);
+            }
+        }
+    }
 }
+
+await main();

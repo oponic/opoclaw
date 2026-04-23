@@ -1,6 +1,5 @@
 import { resolve } from "path";
 import { readFile as readFileFs } from "fs/promises";
-import type { Skill } from "./skills.ts";
 import { getSemanticSearchEnabled } from "./config.ts";
 
 export const SYSTEM_PROMPT_FILE = resolve(import.meta.dir, "../SYSTEM.md");

@@ -10,7 +10,7 @@ import { isOpenAIFunctionTool } from "./plugin_api.ts";
 type PendingCall = {
     resolve: (value: unknown) => void;
     reject: (reason?: unknown) => void;
-    timer: Timer;
+    timer: ReturnType<typeof setTimeout>;
 };
 
 type LoadedPlugin = {
@@ -101,8 +101,8 @@ async function spawnPluginWorker(manifest: PluginManifest, root: string, entryPa
             rejectIfPending(new Error(`Plugin ${manifest.name} did not become ready in time.`));
         }, READY_TIMEOUT_MS);
 
-        worker.onmessage = (ev: MessageEvent<PluginWorkerMessage>) => {
-            const msg = ev.data;
+        worker.onmessage = (ev: MessageEvent) => {
+            const msg = ev.data as PluginWorkerMessage;
             if (!msg || typeof msg !== "object") return;
 
             if (msg.type === "ready") {

@@ -1,6 +1,37 @@
-import { readFileAsync, getFilePath, editFile, listFiles, WORKSPACE_DIR, mkdirPath, removePath, movePath, copyPath } from "./workspace.ts";
-import { Ollama } from "ollama";
+import { execFile } from "child_process";
 import { readFileSync } from "fs";
+import { mkdir, readFile, readdir, rm, stat as fsStat, writeFile } from "fs/promises";
+import path from "path";
+import { promisify } from "util";
+import { Ollama } from "ollama";
+import { WasmShell } from "wasm-shell";
+import type { SearchResult } from "./search/base.ts";
+import { DuckDuckGoSearch } from "./search/duckduckgo.ts";
+import { TavilySearch } from "./search/tavily.ts";
+import {
+    getConfigPath,
+    getExposedCommands,
+    getSemanticSearchEnabled,
+    parseTOML,
+    toTOML,
+    type OpoclawConfig,
+} from "./config.ts";
+import { listSkills, readSkill } from "./skills.ts";
+import {
+    copyPath,
+    editFile,
+    getFilePath,
+    listFiles,
+    mkdirPath,
+    movePath,
+    readFileAsync,
+    removePath,
+    WORKSPACE_DIR,
+} from "./workspace.ts";
+
+const execFileAsync = promisify(execFile);
+const MAX_WEB_FETCH_BYTES = 1_000_000;
+const SAFE_WEB_PROTOCOLS = new Set(["http:", "https:"]);
 
 export const TOOLS: { [id: string]: any } = JSON.parse(
     readFileSync(new URL("./tools.json", import.meta.url), "utf-8")
@@ -29,6 +60,38 @@ export function listPluginToolDescriptors(): any[] {
 
 const CACHE_DIR = path.resolve(import.meta.dir, "../cache/embeddings");
 const SIMILARITY_THRESHOLD = 0.65;
+const shell = new WasmShell();
+const dec = new TextDecoder();
+const enc = new TextEncoder();
+const toReal = (rel: string) => path.join(WORKSPACE_DIR, rel);
+
+function validateWebUrl(rawUrl: string): URL {
+    let parsed: URL;
+    try {
+        parsed = new URL(rawUrl);
+    } catch {
+        throw new Error("Invalid URL.");
+    }
+
+    if (!SAFE_WEB_PROTOCOLS.has(parsed.protocol)) {
+        throw new Error("Only http and https URLs are allowed.");
+    }
+
+    return parsed;
+}
+
+async function readResponseTextLimited(response: Response, maxBytes = MAX_WEB_FETCH_BYTES): Promise<string> {
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > maxBytes) {
+        throw new Error(`Response too large (${contentLength} bytes).`);
+    }
+
+    const text = await response.text();
+    if (new TextEncoder().encode(text).length > maxBytes) {
+        throw new Error(`Response too large (>${maxBytes} bytes).`);
+    }
+    return text;
+}
 
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
     const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i]!, 0);
@@ -164,18 +227,6 @@ export function clearPendingFileSend(): void {
     pendingFileSend = null;
 }
 
-import { WasmShell } from "wasm-shell";
-const shell = new WasmShell();
-
-import path from "path";
-import { mkdir, readdir, readFile, writeFile, rm, stat as fsStat } from "fs/promises";
-import { getConfigPath, getExposedCommands, getSemanticSearchEnabled, parseTOML, toTOML, type OpoclawConfig } from "./config.ts";
-import { listSkills, readSkill } from "./skills.ts";
-import { DuckDuckGoSearch } from "./search/duckduckgo.ts";
-import { TavilySearch } from "./search/tavily.ts";
-import type { SearchResult } from "./search/base.ts";
-const toReal = (rel: string) => path.join(WORKSPACE_DIR, rel);
-
 shell.mount("/home/", {
     async read(path) {
         return readFile(toReal(path));
@@ -202,8 +253,6 @@ shell.setEnv("HOME", "/home");
 shell.setCwd("/home");
 
 let shellSetUp = false;
-
-const dec = new TextDecoder();
 
 function formatSearchResults(results: SearchResult[], count: number): string {
     if (!results.length) return "(no results)";
@@ -244,9 +293,13 @@ async function fetchWithTimeout(url: string, timeoutMs = 5000, init?: RequestIni
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
+        const headers = new Headers(init?.headers);
+        if (!headers.has("User-Agent")) {
+            headers.set("User-Agent", "opoclaw-bot/1.0");
+        }
         return await fetch(url, {
-            headers: { "User-Agent": "opoclaw-bot/1.0" },
             ...init,
+            headers,
             signal: controller.signal,
         });
     } finally {
@@ -286,9 +339,54 @@ function coerceConfigValue(raw: string): any {
     return raw;
 }
 
-import { exec } from "child_process";
+async function runExposedCommand(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+    try {
+        const { stdout, stderr } = await execFileAsync(command, args, { cwd: WORKSPACE_DIR });
+        return { code: 0, stdout, stderr };
+    } catch (error: any) {
+        return {
+            code: typeof error?.code === "number" ? error.code : 1,
+            stdout: typeof error?.stdout === "string" ? error.stdout : "",
+            stderr: typeof error?.stderr === "string" ? error.stderr : String(error?.message || error),
+        };
+    }
+}
 
-const enc = new TextEncoder();
+async function ensureShellSetup(config: OpoclawConfig): Promise<void> {
+    if (shellSetUp) {
+        return;
+    }
+
+    shellSetUp = true;
+
+    if (getSemanticSearchEnabled(config)) {
+        shell.addProgram("semantic-search", async (ctx) => {
+            const query = ctx.args.slice(1).join(" ").trim();
+            if (!query || query === "--help") {
+                await ctx.writeStderr(enc.encode("Usage: semantic-search <query>\n"));
+                return 1;
+            }
+
+            const searchResults = await semanticSearch(query, config);
+            const out = searchResults.length > 0 ? `${searchResults.join("\n")}\n` : "(no results)\n";
+            await ctx.writeStdout(enc.encode(out));
+            return 0;
+        });
+    }
+
+    for (const command of getExposedCommands(config)) {
+        shell.addProgram(command, async (ctx) => {
+            const result = await runExposedCommand(command, ctx.args.slice(1));
+            if (result.stderr.trim().length > 0) {
+                await ctx.writeStderr(enc.encode(`${result.stderr.trim()}\n`));
+            }
+            if (result.stdout.trim().length > 0) {
+                await ctx.writeStdout(enc.encode(`${result.stdout.trim()}\n`));
+            }
+            return result.code;
+        });
+    }
+}
 
 async function runActualShellCommand(shellCommand: string): Promise<{ code: number; stdout: string; stderr: string }> {
     const cmd = process.platform === "win32"
@@ -333,7 +431,7 @@ export async function handleToolCall(
         case "list_files": {
             const files = await listFiles(config.mounts);
             return files.length > 0
-                ? files.map((f) => `• ${f}`).join("\n")
+                ? files.map((f) => `- ${f}`).join("\n")
                 : "(workspace is empty)";
         }
         case "send_file": {
@@ -406,14 +504,14 @@ export async function handleToolCall(
         }
         case "web_fetch": {
             if (!args.url) throw new Error("Missing 'url' argument for web_fetch.");
-            const url = String(args.url);
+            const url = validateWebUrl(String(args.url)).toString();
             if (config.search_provider === "tavily") {
                 if (!config.tavily_api_key) return "Error: Tavily is selected as search provider but no tavily_api_key is set in config.";
                 return await tavilyExtract(url, config.tavily_api_key);
             }
-            const res = await fetch(url, { headers: { "User-Agent": "opoclaw-bot/1.0" } });
+            const res = await fetchWithTimeout(url, 15000);
             if (!res.ok) throw new Error(`web_fetch failed (${res.status})`);
-            return await res.text();
+            return await readResponseTextLimited(res);
         }
         case "mkdir": {
             if (!args.path) throw new Error("Missing 'path' argument for mkdir.");
@@ -494,44 +592,7 @@ export async function handleToolCall(
                 return output.trim() + "\n(Current directory: ~)";
             }
 
-            if (!shellSetUp) {
-                shellSetUp = true;
-                if (getSemanticSearchEnabled(config)) {
-                    shell.addProgram('semantic-search', async (ctx) => {
-                        const query = ctx.args.slice(1).join(' ').trim();
-                        if (!query || query === '--help') {
-                            await ctx.writeStderr(enc.encode('Usage: semantic-search <query>\n'));
-                            return 1;
-                        }
-                        const searchResults = await semanticSearch(query, config);
-                        const out = searchResults.length > 0
-                            ? searchResults.join('\n') + '\n'
-                            : '(no results)\n';
-                        await ctx.writeStdout(enc.encode(out));
-                        return 0;
-                    });
-                }
-
-                const commands = getExposedCommands(config);
-                for (const cmd of commands) {
-                    shell.addProgram(cmd, async (ctx) => {
-                        const args = ctx.args.slice(1);
-                        // run that with `exec`
-                        return new Promise((resolve) => {
-                            const c = `${cmd} ${args.join(" ")}`;
-                            exec(c, (error, stdout, stderr) => {
-                                if (stderr.trim().length > 0) {
-                                    ctx.writeStderr(enc.encode(stderr.trim() + "\n"));
-                                }
-                                if (stdout.trim().length > 0) {
-                                    ctx.writeStdout(enc.encode(stdout.trim() + "\n"));
-                                }
-                                resolve(0);
-                            });
-                        });
-                    });
-                }
-            }
+            await ensureShellSetup(config);
             const result = await shell.exec(args.shell_command);
             let output = "";
 

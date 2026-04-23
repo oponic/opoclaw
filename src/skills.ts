@@ -55,7 +55,9 @@ export async function readSkill(name: string): Promise<string> {
 }
 
 export function registerSkill(meta: { name: string; content: string; metadata?: any }): void {
-    if (!meta || !meta.name) throw new Error("Invalid skill metadata");
+    if (!meta || !meta.name || !isSafeSkillName(meta.name)) {
+        throw new Error("Invalid skill metadata");
+    }
     PLUGIN_SKILLS.set(meta.name, { name: meta.name, content: meta.content || "", metadata: meta.metadata });
 }
 

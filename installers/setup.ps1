@@ -2,11 +2,27 @@
 
 $RepoUrl = "https://github.com/oponic/opoclaw.git"
 $InstallDir = ""
+$script:BunCmd = $null
 
 function Write-Header($msg){ Write-Host "`n═══ $msg ═══`n" -ForegroundColor White -BackgroundColor DarkBlue }
 function Write-Info($msg)  { Write-Host "[opoclaw] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)    { Write-Host "[✓] $msg" -ForegroundColor Green }
 function Write-Warn($msg)  { Write-Host "⚠ $msg" -ForegroundColor Yellow }
+
+function Get-BunCommand {
+    if ($script:BunCmd) { return $script:BunCmd }
+    $bun = Get-Command bun -ErrorAction SilentlyContinue
+    if ($bun) {
+        $script:BunCmd = $bun.Source
+        return $script:BunCmd
+    }
+    $candidate = Join-Path $HOME ".bun\bin\bun.exe"
+    if (Test-Path $candidate) {
+        $script:BunCmd = $candidate
+        return $script:BunCmd
+    }
+    throw "Bun executable not found."
+}
 
 function Ensure-PackageManager {
     if (Get-Command winget -ErrorAction SilentlyContinue) { return "winget" }
@@ -32,8 +48,11 @@ function Ensure-Git {
 }
 
 function Ensure-Bun {
-    if (Get-Command bun -ErrorAction SilentlyContinue) {
-        Write-Ok "Bun already installed ($(bun --version))"
+    $existing = Get-Command bun -ErrorAction SilentlyContinue
+    if ($existing) {
+        $script:BunCmd = $existing.Source
+        $bunVersion = & $script:BunCmd --version
+        Write-Ok "Bun already installed ($bunVersion)"
         return
     }
     Write-Info "Installing Bun..."
@@ -43,6 +62,7 @@ function Ensure-Bun {
         "scoop"  { scoop install bun }
     }
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","User") + ";" + [System.Environment]::GetEnvironmentVariable("Path","Machine")
+    $script:BunCmd = Get-BunCommand
     Write-Ok "Bun installed"
 }
 
@@ -56,7 +76,10 @@ function Clone-Repo {
         Write-Ok "opoclaw already exists — pulling latest"
         Set-Location $InstallDir
         git fetch --tags
-        git checkout main 2>$null || git checkout -b main
+        git checkout main 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            git checkout -b main
+        }
         git pull --rebase
         $latestTag = git tag --sort=-v:refname | Select-Object -First 1
         if ($latestTag) {
@@ -79,7 +102,7 @@ function Clone-Repo {
 function Install-Dependencies {
     Write-Info "Installing dependencies..."
     Set-Location $InstallDir
-    bun install
+    & (Get-BunCommand) install
     Write-Ok "Dependencies installed"
 }
 
@@ -101,11 +124,11 @@ Clone-Repo
 Install-Dependencies
 
 Write-Header "Installing opoclaw command"
-bun run src/cli.ts install
+& (Get-BunCommand) run src/cli.ts install
 
 Write-Header "Launching onboard wizard"
 Set-Location $InstallDir
-bun run installers\onboard.ts
+& (Get-BunCommand) run installers\onboard.ts
 
 Write-Host ""
 Write-Ok "opoclaw is installed!"

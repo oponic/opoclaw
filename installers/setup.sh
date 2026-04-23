@@ -14,6 +14,7 @@ header(){ echo -e "\n${BOLD}═══ $* ═══${RESET}\n"; }
 
 REPO_URL="https://github.com/oponic/opoclaw.git"
 INSTALL_DIR=""
+BUN_BIN=""
 
 detect_os() {
     case "$(uname -s)" in
@@ -48,7 +49,8 @@ install_brew_macos() {
 
 install_bun() {
     if command -v bun &>/dev/null; then
-        ok "Bun already installed ($(bun --version))"
+        BUN_BIN="$(command -v bun)"
+        ok "Bun already installed ($("$BUN_BIN" --version))"
         return
     fi
     info "Installing Bun..."
@@ -56,7 +58,8 @@ install_bun() {
     export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
     export PATH="$BUN_INSTALL/bin:$PATH"
     if command -v bun &>/dev/null; then
-        ok "Bun installed ($(bun --version))"
+        BUN_BIN="$(command -v bun)"
+        ok "Bun installed ($("$BUN_BIN" --version))"
     else
         echo "Error: bun install failed."
         exit 1
@@ -125,7 +128,7 @@ clone_repo() {
 install_deps() {
     info "Installing dependencies..."
     cd "$INSTALL_DIR"
-    bun install
+    "$BUN_BIN" install
     ok "Dependencies installed"
 }
 
@@ -155,11 +158,11 @@ clone_repo
 install_deps
 
 header "Installing opoclaw command"
-bun run src/cli.ts install --service
+"$BUN_BIN" run src/cli.ts install --service
 
 header "Launching onboard wizard"
 cd "$INSTALL_DIR"
-bun run installers/onboard.ts
+"$BUN_BIN" run installers/onboard.ts
 
 echo ""
 ok "opoclaw is installed!"

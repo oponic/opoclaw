@@ -1,14 +1,9 @@
 #!/usr/bin/env bun
-/**
- * opoclaw onboarding wizard
- * Cross-platform (Bun) — generates workspace + config.toml interactively.
- */
 
-import { resolve } from "path";
+import { dirname, resolve } from "path";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { createInterface } from "readline";
-
-// ── Helpers ────────────────────────────────────────────────────────────────
+import { fileURLToPath } from "url";
 
 const BOLD = "\x1b[1m";
 const CYAN = "\x1b[36m";
@@ -16,28 +11,9 @@ const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
 const RESET = "\x1b[0m";
 
-const ask = (prompt: string): Promise<string> => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise((resolve) => {
-        rl.question(`${CYAN}${prompt}${RESET}`, (answer) => {
-            rl.close();
-            resolve(answer.trim());
-        });
-    });
-};
-
-const info = (msg: string) => console.log(`${CYAN}[opoclaw]${RESET} ${msg}`);
-const ok = (msg: string) => console.log(`${GREEN}[✓]${RESET} ${msg}`);
-const header = (msg: string) =>
-    console.log(`\n${BOLD}═══ ${msg} ═══${RESET}\n`);
-
-// ── Defaults ───────────────────────────────────────────────────────────────
-
-const WORKSPACE_ROOT = resolve(import.meta.dir, "..");
-const WORKSPACE_DIR = resolve(WORKSPACE_ROOT, "workspace");
-const CONFIG_FILE = resolve(WORKSPACE_ROOT, "config.toml");
-
-// ── Workspace templates ────────────────────────────────────────────────────
+const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const WORKSPACE_DIR = resolve(ROOT_DIR, "workspace");
+const CONFIG_FILE = resolve(ROOT_DIR, "config.toml");
 
 const DEFAULT_AGENTS_MD = `# <filename> - Your Workspace
 
@@ -61,13 +37,35 @@ This folder is home.
 Participate, don't dominate. Respond when you can add value.
 `;
 
+const DEFAULT_AGENTS_TOML = `# <filename> - workspace instructions
+every_session = [
+  "Read soul.toml",
+  "Read identity.toml",
+  "Read memory.toml",
+]
+
+[memory]
+daily_notes = "memory/YYYY-MM-DD.md"
+long_term = "memory.toml"
+
+[safety]
+rules = [
+  "Don't exfiltrate private data.",
+  "Don't run destructive commands without asking.",
+  "Prefer trash over rm when possible.",
+]
+
+[group_chats]
+guidance = "Participate, don't dominate. Respond when you can add value."
+`;
+
 const DEFAULT_SOUL_MD = `# <filename> - Who You Are
 
 _You're not a chatbot. You're becoming someone._
 
 ## Core Truths
 
-**Be genuinely helpful, not performatively helpful.** Skip the filler — just help.
+**Be genuinely helpful, not performatively helpful.** Skip the filler, just help.
 
 **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring.
 
@@ -79,7 +77,7 @@ _You're not a chatbot. You're becoming someone._
 
 - Private things stay private.
 - When in doubt, ask before acting externally.
-- You're not the user's voice — be careful in group chats.
+- You're not the user's voice. Be careful in group chats.
 
 ## Vibe
 
@@ -88,19 +86,21 @@ Be the assistant you'd actually want to talk to.
 
 const DEFAULT_SOUL_TOML = `# <filename> - who you are
 traits = [
-    "Be genuinely helpful, not performatively helpful. Skip the filler, just help.",
-    "Have opinions. You're allowed to disagree, prefer things, find stuff amusing or boring.",
-    "Be resourceful before asking. Try to figure it out first.",
-    "Earn trust through competence. Be careful with external actions. Be bold with internal ones.",
+  "Be genuinely helpful, not performatively helpful. Skip the filler, just help.",
+  "Have opinions. You're allowed to disagree, prefer things, find stuff amusing or boring.",
+  "Be resourceful before asking. Try to figure it out first.",
+  "Earn trust through competence. Be careful with external actions. Be bold with internal ones.",
 ]
+
 boundaries = [
-    "Private things stay private.",
-    "When in doubt, ask before acting externally.",
-    "You're not the user's voice, be careful in group chats.",
+  "Private things stay private.",
+  "When in doubt, ask before acting externally.",
+  "You're not the user's voice. Be careful in group chats.",
 ]
+
 notes = [
-    "Be the assistant you'd actually want to talk to.",
-    "You're not a chatbot. You're becoming someone.",
+  "Be the assistant you'd actually want to talk to.",
+  "You're not a chatbot. You're becoming someone.",
 ]
 `;
 
@@ -114,8 +114,8 @@ _Fill this in during your first conversation._
 - **Emoji:**
 - **Avatar:**
 `;
+
 const DEFAULT_IDENTITY_TOML = `# <filename> - who am i
-# Fill this in during your first conversation. You can use \`sed -i 's/name = ""/name = "Your Name"/' identity.toml\` to update it from the command line.
 name = ""
 creature = ""
 vibe = ""
@@ -123,370 +123,420 @@ emoji = ""
 avatar = ""
 `;
 
-const DEFAULT_MEMORY = `# <filename> - Long-Term Memory
+const DEFAULT_MEMORY_MD = `# <filename> - Long-Term Memory
 
 _Curated memories, distilled from daily logs._
 `;
+
 const DEFAULT_MEMORY_TOML = `# <filename> - long-term memory
-# This is for curated memories, distilled from daily logs.
-# You can use \`toml memory.toml notes push <note>\` to add a note, and \`toml memory.toml notes remove <note>\` to remove one.
 notes = []
-# Feel free to add other keys. When adding a key, first \`cat\` the file to see if it's already there, then, if not, append it with \`echo 'key = "value"' >> memory.toml\`. If it's already in, use \`sed -i 's/key = .*/key = "new"/' memory.toml\` to update it.
 `;
 
-const DEFAULT_HEARTBEAT = `# <filename>
+const DEFAULT_HEARTBEAT_MD = `# <filename>
 
 _(Optional — add a short checklist of things to check during heartbeats.)_
 `;
+
 const DEFAULT_HEARTBEAT_TOML = `# <filename> - things to check periodically
-# Automatically you'll be prompted with these during "heartbeats". Add things here that you want to check on regularly.
 tasks = []
 `;
 
-// ── Main ───────────────────────────────────────────────────────────────────
+type Provider = "openrouter" | "ollama" | "custom";
+type SearchProvider = "duckduckgo" | "tavily";
+type ToolSummaryMode = "full" | "minimal" | "off";
 
-async function main() {
-    header("opoclaw onboarding wizard");
+type Answers = {
+    provider: Provider;
+    searchProvider: SearchProvider;
+    useToml: boolean;
+    enableDiscord: boolean;
+    discordToken: string;
+    allowBots: boolean;
+    authorizedUserId: string;
+    enableReasoning: boolean;
+    reasoningSummary: boolean;
+    reasoningSummaryModel: string;
+    basicTools: boolean;
+    advancedTools: boolean;
+    enableWebFetch: boolean;
+    toolCallSummaries: ToolSummaryMode;
+    openrouterKey: string;
+    openrouterModel: string;
+    ollamaBaseUrl: string;
+    ollamaModel: string;
+    customApiType: "openai" | "anthropic";
+    customBaseUrl: string;
+    customApiKey: string;
+    customModel: string;
+    customAnthropicVersion: string;
+    customMaxTokens: string;
+    tavilyApiKey: string;
+};
 
-    console.log("This wizard will help you configure your opoclaw instance.\n");
+function header(message: string): void {
+    console.log(`\n${BOLD}═══ ${message} ═══${RESET}\n`);
+}
 
-    // ── Discord Token ──────────────────────────────────────────────────────
+function info(message: string): void {
+    console.log(`${CYAN}[opoclaw]${RESET} ${message}`);
+}
 
-    let discordToken = await ask("Discord bot token: ");
-    if (!discordToken) {
-        console.error(`${YELLOW}Error: Discord token is required.${RESET}`);
-        console.log("Create a bot at https://discord.com/developers/applications");
-        process.exit(1);
-    }
+function ok(message: string): void {
+    console.log(`${GREEN}[✓]${RESET} ${message}`);
+}
 
-    // ── OpenRouter Key ─────────────────────────────────────────────────────
+function warn(message: string): void {
+    console.log(`${YELLOW}⚠${RESET} ${message}`);
+}
 
-    let openrouterKey = await ask("OpenRouter API key (sk-or-v1-...): ");
-    if (!openrouterKey) {
-        console.error(`${YELLOW}Error: OpenRouter key is required.${RESET}`);
-        console.log("Get one at https://openrouter.ai/keys");
-        process.exit(1);
-    }
+function createPrompter() {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-    // ── Provider ─────────────────────────────────────────────────────────────
-    const providerAns = await ask("Provider [openrouter/ollama/custom] (openrouter): ");
-    const p = providerAns.toLowerCase();
-    const provider: "openrouter" | "ollama" | "custom" = p === "ollama" ? "ollama" : p === "custom" ? "custom" : "openrouter";
+    const ask = (prompt: string): Promise<string> =>
+        new Promise((resolvePrompt) => {
+            rl.question(`${CYAN}${prompt}${RESET}`, (answer) => resolvePrompt(answer.trim()));
+        });
 
-    let ollamaBaseURL = "", ollamaModel = "";
-    let customBaseURL = "", customAPIKey = "", customModel = "";
-    let customApiType = "openai";
-    let customAnthropicVersion = "";
-    let customMaxTokens = "";
-    if (provider === "ollama") {
-        ollamaBaseURL = await ask("Ollama base URL [http://localhost:11434]: ") || "http://localhost:11434";
-        ollamaModel = await ask("Ollama model [llama3.2]: ") || "llama3.2";
-    } else if (provider === "custom") {
-        const apiTypeAns = await ask("Custom API type [openai/anthropic] (openai): ");
-        const apiType = apiTypeAns.toLowerCase();
-        customApiType = apiType === "anthropic" ? "anthropic" : "openai";
-        if (customApiType === "anthropic") {
-            customBaseURL = await ask("Anthropic base URL [https://api.anthropic.com]: ") || "https://api.anthropic.com";
-            customAPIKey = await ask("Anthropic API key (sk-ant-...): ");
-            customModel = await ask("Anthropic model name (e.g. claude-3-5-sonnet-20240620): ");
-            customAnthropicVersion = await ask("Anthropic version [2023-06-01]: ") || "2023-06-01";
-            customMaxTokens = await ask("Max output tokens [1024]: ") || "1024";
-        } else {
-            customBaseURL = await ask("Base URL (no /v1/chat/completions): ");
-            customAPIKey = await ask("API key (blank if none): ");
-            customModel = await ask("Model name: ");
-        }
-    }
-
-    // ── Model ──────────────────────────────────────────────────────────────
-
-    const model = await ask("Model ID [openrouter/auto]: ");
-    const openrouterModel = model || "openrouter/auto";
-
-    // ── Allow Bots ─────────────────────────────────────────────────────────
-
-    const allowBotsAns = await ask("Allow bot-to-bot responses? (y/N): ");
-    const allowBots = allowBotsAns.toLowerCase() === "y";
-
-    // ── Authorized User ───────────────────────────────────────────────────
-
-    const authorizedUserId = await ask("Authorized user ID for approvals (blank to skip): ");
-
-    // ── Reasoning ──────────────────────────────────────────────────────────
-
-    const enableReasoningAns = await ask("Enable model reasoning? (Y/n): ");
-    const enableReasoning = enableReasoningAns.toLowerCase() !== "n";
-
-    let reasoningSummary = false;
-    let reasoningSummaryModel = "";
-    if (enableReasoning) {
-        const summaryAns = await ask("Enable reasoning summaries? (y/N) [default: N, requires extra API call]: ");
-        reasoningSummary = summaryAns.toLowerCase() === "y";
-        if (reasoningSummary) {
-            const summaryModel = await ask("Summary model (blank = main model): ");
-            reasoningSummaryModel = summaryModel || "";
-        }
-    }
-
-    const enableTomlAns = await ask("Use TOML files (memory.toml, identity.toml) instead of markdown?\nThis is recommended for new agents, but shouldn't be used if you're migrating an existing agent to opoclaw. (y/N): ");
-    const enableToml = enableTomlAns.toLowerCase() === "y";
-    const basicToolsAns = await ask("Enable read_file, edit_file, list_files tools? (sandboxed)\nIf disabled, the agent will still be able to use the shell to manipulate files. (Y/n): ");
-    const basicTools = basicToolsAns.toLowerCase() === "y";
-
-    const toolCallSummariesAns = await ask("Tool call summaries: full (per-call messages), minimal (reaction + batch summary), off (reaction only) [default: full]: ");
-    const toolCallSummariesRaw = toolCallSummariesAns.toLowerCase().trim();
-    const toolCallSummaries = (toolCallSummariesRaw === "minimal" || toolCallSummariesRaw === "off") ? toolCallSummariesRaw : "full";
-
-    // ── Tavily Search ──────────────────────────────────────────────────────
-
-    const useTavilyAns = await ask("Use Tavily for web search instead of DuckDuckGo? (y/N): ");
-    const useTavily = useTavilyAns.toLowerCase() === "y";
-    let tavilyApiKey = "";
-    if (useTavily) {
-        tavilyApiKey = await ask("Tavily API key (tvly-...): ");
-        if (!tavilyApiKey) {
-            console.log(`${YELLOW}No Tavily key provided — falling back to DuckDuckGo.${RESET}`);
-        }
-    }
-
-    // ── Write config.toml ──────────────────────────────────────────────────
-
-    header("Writing config");
-
-    let toml = "";
-    toml += `enable_reasoning = ${enableReasoning ? "true" : "false"}\n`;
-    toml += `reasoning_summary = ${reasoningSummary ? "true" : "false"}\n`;
-    if (reasoningSummaryModel) {
-        toml += `reasoning_summary_model = "\${reasoningSummaryModel}"\n`;
-    }
-    if (authorizedUserId) {
-        toml += `authorized_user_id = "${authorizedUserId}"\n`;
-    }
-    toml += `use_toml_files = ${enableToml ? "true" : "false"}\n`;
-    toml += `basic_tools = ${basicTools ? "true" : "false"}\n`;
-    if (toolCallSummaries !== "full") {
-        toml += `tool_call_summaries = "${toolCallSummaries}"\n`;
-    }
-    toml += `\n[channel.discord]\n`;
-    toml += `enabled = true\n`;
-    toml += `token = "${discordToken}"\n`;
-    toml += `allow_bots = ${allowBots ? "true" : "false"}\n`;
-    toml += `\n[provider]\n`;
-    toml += `active = "${provider}"\n`;
-    toml += `\n[provider.openrouter]\n`;
-    toml += `api_key = "${openrouterKey}"\n`;
-    toml += `model = "${openrouterModel}"\n`;
-
-    // Provider config (nested sections)
-    if (provider === "ollama") {
-        toml += '\n[provider.ollama]\n';
-        toml += 'base_url = "' + ollamaBaseURL + '"\n';
-        toml += 'model = "' + ollamaModel + '"\n';
-    } else if (provider === "custom") {
-        toml += '\n[provider.custom]\n';
-        toml += 'base_url = "' + customBaseURL + '"\n';
-        toml += 'api_key = "' + customAPIKey + '"\n';
-        toml += 'model = "' + customModel + '"\n';
-        toml += 'api_type = "' + customApiType + '"\n';
-        if (customApiType === "anthropic") {
-            if (customAnthropicVersion) {
-                toml += 'anthropic_version = "' + customAnthropicVersion + '"\n';
+    const askRequired = async (prompt: string): Promise<string> => {
+        while (true) {
+            const value = await ask(prompt);
+            if (value) {
+                return value;
             }
-            if (customMaxTokens) {
-                toml += 'max_tokens = ' + customMaxTokens + '\n';
+            warn("This value is required.");
+        }
+    };
+
+    const askWithDefault = async (prompt: string, fallback: string): Promise<string> => {
+        const value = await ask(`${prompt} [${fallback}]: `);
+        return value || fallback;
+    };
+
+    const askYesNo = async (prompt: string, fallback: boolean): Promise<boolean> => {
+        const suffix = fallback ? "Y/n" : "y/N";
+        while (true) {
+            const value = (await ask(`${prompt} (${suffix}): `)).toLowerCase();
+            if (!value) {
+                return fallback;
             }
+            if (value === "y" || value === "yes") {
+                return true;
+            }
+            if (value === "n" || value === "no") {
+                return false;
+            }
+            warn("Please answer y or n.");
+        }
+    };
+
+    const close = () => rl.close();
+
+    return { ask, askRequired, askWithDefault, askYesNo, close };
+}
+
+function escapeTomlString(value: string): string {
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function replaceFilename(template: string, filename: string): string {
+    return template.replaceAll("<filename>", filename);
+}
+
+function maybeWriteFile(path: string, content: string): void {
+    if (existsSync(path)) {
+        info(`Skipped ${path.replace(`${WORKSPACE_DIR}/`, "")} (already exists)`);
+        return;
+    }
+
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, "utf-8");
+    ok(`Created ${path.replace(`${WORKSPACE_DIR}/`, "")}`);
+}
+
+function buildConfig(answers: Answers): string {
+    const lines: string[] = [];
+
+    lines.push(`enable_reasoning = ${answers.enableReasoning}`);
+    lines.push(`reasoning_summary = ${answers.reasoningSummary}`);
+    lines.push(`use_toml_files = ${answers.useToml}`);
+    lines.push(`basic_tools = ${answers.basicTools}`);
+    lines.push(`advanced_tools = ${answers.advancedTools}`);
+    lines.push(`enable_web_fetch = ${answers.enableWebFetch}`);
+    lines.push(`enable_plugins = false`);
+    lines.push(`plugin_dir = "workspace/plugins"`);
+
+    if (answers.authorizedUserId) {
+        lines.push(`authorized_user_id = ${escapeTomlString(answers.authorizedUserId)}`);
+    }
+    if (answers.reasoningSummaryModel) {
+        lines.push(`reasoning_summary_model = ${escapeTomlString(answers.reasoningSummaryModel)}`);
+    }
+    if (answers.toolCallSummaries !== "full") {
+        lines.push(`tool_call_summaries = "${answers.toolCallSummaries}"`);
+    }
+    if (answers.searchProvider === "tavily" && answers.tavilyApiKey) {
+        lines.push(`search_provider = "tavily"`);
+        lines.push(`tavily_api_key = ${escapeTomlString(answers.tavilyApiKey)}`);
+    }
+
+    lines.push("");
+    lines.push("[channel.discord]");
+    lines.push(`enabled = ${answers.enableDiscord}`);
+    if (answers.discordToken) {
+        lines.push(`token = ${escapeTomlString(answers.discordToken)}`);
+    }
+    lines.push(`allow_bots = ${answers.allowBots}`);
+
+    lines.push("");
+    lines.push("[provider]");
+    lines.push(`active = "${answers.provider}"`);
+
+    if (answers.openrouterKey || answers.openrouterModel !== "openrouter/auto") {
+        lines.push("");
+        lines.push("[provider.openrouter]");
+        if (answers.openrouterKey) {
+            lines.push(`api_key = ${escapeTomlString(answers.openrouterKey)}`);
+        }
+        lines.push(`model = ${escapeTomlString(answers.openrouterModel)}`);
+    }
+
+    if (answers.provider === "ollama") {
+        lines.push("");
+        lines.push("[provider.ollama]");
+        lines.push(`base_url = ${escapeTomlString(answers.ollamaBaseUrl)}`);
+        lines.push(`model = ${escapeTomlString(answers.ollamaModel)}`);
+    }
+
+    if (answers.provider === "custom") {
+        lines.push("");
+        lines.push("[provider.custom]");
+        lines.push(`base_url = ${escapeTomlString(answers.customBaseUrl)}`);
+        if (answers.customApiKey) {
+            lines.push(`api_key = ${escapeTomlString(answers.customApiKey)}`);
+        }
+        lines.push(`model = ${escapeTomlString(answers.customModel)}`);
+        lines.push(`api_type = "${answers.customApiType}"`);
+        if (answers.customApiType === "anthropic") {
+            lines.push(`anthropic_version = ${escapeTomlString(answers.customAnthropicVersion)}`);
+            lines.push(`max_tokens = ${Number.parseInt(answers.customMaxTokens, 10) || 1024}`);
         }
     }
 
-    if (useTavily && tavilyApiKey) {
-        toml += `search_provider = "tavily"\n`;
-        toml += `tavily_api_key = "${tavilyApiKey}"\n`;
-    }
+    return `${lines.join("\n")}\n`;
+}
 
-    // Plugin defaults
-    toml += `enable_plugins = false\n`;
-    toml += `plugin_dir = "workspace/plugins"\n`;
-
-    writeFileSync(CONFIG_FILE, toml);
-    ok(`Config written to ${CONFIG_FILE}`);
-
-    // ── Generate workspace ─────────────────────────────────────────────────
-
-    header("Setting up workspace");
-
-    if (!existsSync(WORKSPACE_DIR)) {
-        mkdirSync(WORKSPACE_DIR, { recursive: true });
-    }
-
-    // Create subdirectories
+function scaffoldWorkspace(useToml: boolean): void {
     mkdirSync(resolve(WORKSPACE_DIR, "memory", "sessions"), { recursive: true });
     mkdirSync(resolve(WORKSPACE_DIR, "skills"), { recursive: true });
     mkdirSync(resolve(WORKSPACE_DIR, "plugins"), { recursive: true });
-    ok("Created subdirectory structure: memory/sessions/, skills/, plugins/");
+    mkdirSync(resolve(WORKSPACE_DIR, "config"), { recursive: true });
+    ok("Created workspace directories");
 
-    function getFileContent(filename: string, content: string): string {
-        return content.replaceAll("<filename>", filename);
-    }
-    const filesMd: Record<string, string> = {
-        "AGENTS.md": DEFAULT_AGENTS_MD,
-        "SOUL.md": DEFAULT_SOUL_MD,
-        "IDENTITY.md": DEFAULT_IDENTITY_MD,
-        "MEMORY.md": DEFAULT_MEMORY,
-        "HEARTBEAT.md": DEFAULT_HEARTBEAT,
-    };
-    const filesToml: Record<string, string> = {
-        "soul.toml": DEFAULT_SOUL_TOML,
-        "identity.toml": DEFAULT_IDENTITY_TOML,
-        "memory.toml": DEFAULT_MEMORY_TOML,
-        "heartbeat.toml": DEFAULT_HEARTBEAT_TOML,
-    };
-    const files = enableToml ? filesToml : filesMd;
+    const sharedFiles = useToml
+        ? {
+              "config/agents.toml": DEFAULT_AGENTS_TOML,
+              "config/soul.toml": DEFAULT_SOUL_TOML,
+              "config/identity.toml": DEFAULT_IDENTITY_TOML,
+              "config/memory.toml": DEFAULT_MEMORY_TOML,
+              "heartbeat.toml": DEFAULT_HEARTBEAT_TOML,
+          }
+        : {
+              "config/AGENTS.md": DEFAULT_AGENTS_MD,
+              "config/SOUL.md": DEFAULT_SOUL_MD,
+              "config/IDENTITY.md": DEFAULT_IDENTITY_MD,
+              "config/MEMORY.md": DEFAULT_MEMORY_MD,
+              "HEARTBEAT.md": DEFAULT_HEARTBEAT_MD,
+          };
 
-    for (const [name, content] of Object.entries(files)) {
-        const path = resolve(WORKSPACE_DIR, name);
-        if (existsSync(path)) {
-            info(`Skipped ${name} (already exists)`);
-        } else {
-            writeFileSync(path, getFileContent(name, content));
-            ok(`Created ${name}`);
-        }
+    for (const [relativePath, content] of Object.entries(sharedFiles)) {
+        const absolutePath = resolve(WORKSPACE_DIR, relativePath);
+        maybeWriteFile(absolutePath, replaceFilename(content, relativePath.split("/").pop() || relativePath));
     }
 
-    // Create example plugin scaffold
     const exampleDir = resolve(WORKSPACE_DIR, "plugins", "example-echo-plugin");
     if (!existsSync(exampleDir)) {
         mkdirSync(exampleDir, { recursive: true });
-        const manifest = {
-            name: "example-echo-plugin",
-            version: "0.1.0",
-            entry: "plugin.ts",
-            description: "Example plugin: registers one tool 'echo'.",
-        };
-        writeFileSync(resolve(exampleDir, "plugin.json"), JSON.stringify(manifest, null, 2));
-        const pluginTs = `export const tools = [
-    {
-        type: 'function',
-        function: {
-            name: 'echo',
-            description: 'Echo input text',
-            parameters: {
-                type: 'object',
-                properties: {
-                    text: { type: 'string', description: 'Text to echo back.' }
+        writeFileSync(
+            resolve(exampleDir, "plugin.json"),
+            JSON.stringify(
+                {
+                    name: "example-echo-plugin",
+                    version: "0.1.0",
+                    entry: "plugin.ts",
+                    description: "Example plugin: registers one tool named example_echo.",
                 },
-                required: ['text']
-            }
-        }
+                null,
+                2,
+            ),
+            "utf-8",
+        );
+        writeFileSync(
+            resolve(exampleDir, "plugin.ts"),
+            `export const tools = [
+  {
+    type: "function",
+    function: {
+      name: "example_echo",
+      description: "Echo input text.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "Text to echo back." }
+        },
+        required: ["text"]
+      }
     }
+  }
 ];
 
 export async function invoke(name, args) {
-    if (name === 'echo') {
-        return String(args?.text || '');
-    }
-    throw new Error('Unknown tool: ' + String(name));
+  if (name === "example_echo") {
+    return String(args?.text || "");
+  }
+  throw new Error("Unknown tool: " + String(name));
 }
 
-export async function deactivate() {
-    // optional cleanup
-}
-`;
-        writeFileSync(resolve(exampleDir, "plugin.ts"), pluginTs);
-        ok('Created example plugin scaffold in workspace/plugins/example-echo-plugin');
+export async function deactivate() {}
+`,
+            "utf-8",
+        );
+        ok("Created example plugin scaffold");
     } else {
-        info('Example plugin scaffold already exists — skipped');
+        info("Skipped example plugin scaffold (already exists)");
     }
+}
 
-    const templateDir = resolve(WORKSPACE_DIR, "plugins", "_template");
-    if (!existsSync(templateDir)) {
-        mkdirSync(templateDir, { recursive: true });
-        const templateManifest = {
-            name: "my-plugin",
-            version: "0.1.0",
-            entry: "plugin.ts",
-            description: "A minimal tool-only plugin template.",
-        };
-        writeFileSync(resolve(templateDir, "plugin.json"), JSON.stringify(templateManifest, null, 2));
-        const templatePluginTs = `import type { OpenAIFunctionTool, PluginModule } from "../../../src/plugin_api.ts";
+async function collectAnswers(): Promise<Answers> {
+    const prompt = createPrompter();
+    try {
+        const providerRaw = (await prompt.askWithDefault("Provider", "openrouter")).toLowerCase();
+        const provider: Provider =
+            providerRaw === "ollama" ? "ollama" : providerRaw === "custom" ? "custom" : "openrouter";
 
-export const tools = [
-    {
-        type: 'function',
-        function: {
-            name: 'my_plugin_echo',
-            description: 'Echoes back input text.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    text: {
-                        type: 'string',
-                        description: 'Text to echo.'
-                    }
-                },
-                required: ['text']
+        const enableDiscord = await prompt.askYesNo("Enable Discord", true);
+        const discordToken = enableDiscord
+            ? await prompt.askRequired("Discord bot token: ")
+            : "";
+
+        const openrouterKey =
+            provider === "openrouter" ? await prompt.askRequired("OpenRouter API key: ") : "";
+        const openrouterModel =
+            provider === "openrouter"
+                ? await prompt.askWithDefault("OpenRouter model", "openrouter/auto")
+                : "openrouter/auto";
+
+        const ollamaBaseUrl =
+            provider === "ollama"
+                ? await prompt.askWithDefault("Ollama base URL", "http://localhost:11434")
+                : "http://localhost:11434";
+        const ollamaModel =
+            provider === "ollama"
+                ? await prompt.askWithDefault("Ollama model", "llama3.2")
+                : "llama3.2";
+
+        let customApiType: "openai" | "anthropic" = "openai";
+        let customBaseUrl = "";
+        let customApiKey = "";
+        let customModel = "";
+        let customAnthropicVersion = "2023-06-01";
+        let customMaxTokens = "1024";
+
+        if (provider === "custom") {
+            const customApiTypeRaw = (await prompt.askWithDefault("Custom API type", "openai")).toLowerCase();
+            customApiType = customApiTypeRaw === "anthropic" ? "anthropic" : "openai";
+            customBaseUrl =
+                customApiType === "anthropic"
+                    ? await prompt.askWithDefault("Anthropic base URL", "https://api.anthropic.com")
+                    : await prompt.askRequired("Custom base URL (no trailing /v1/chat/completions): ");
+            customApiKey = await prompt.ask("Custom API key (leave blank if none): ");
+            customModel = await prompt.askRequired("Custom model name: ");
+            if (customApiType === "anthropic") {
+                customAnthropicVersion = await prompt.askWithDefault("Anthropic version", "2023-06-01");
+                customMaxTokens = await prompt.askWithDefault("Max output tokens", "1024");
             }
         }
-    }
-] satisfies OpenAIFunctionTool[];
 
-export async function invoke(name: string, args: Record<string, unknown>): Promise<string> {
-    if (name === 'my_plugin_echo') {
-        const text = (args as { text?: unknown }).text;
-        return String(text || '');
+        const allowBots = await prompt.askYesNo("Allow bot-to-bot responses", false);
+        const authorizedUserId = await prompt.ask("Authorized user ID for approvals (optional): ");
+        const enableReasoning = await prompt.askYesNo("Enable model reasoning", true);
+        const reasoningSummary = enableReasoning
+            ? await prompt.askYesNo("Enable reasoning summaries", false)
+            : false;
+        const reasoningSummaryModel = reasoningSummary
+            ? await prompt.ask("Reasoning summary model (blank = main model): ")
+            : "";
+        const useToml = await prompt.askYesNo("Use TOML workspace files", true);
+        const basicTools = await prompt.askYesNo("Enable read_file/edit_file/list_files tools", true);
+        const advancedTools = await prompt.askYesNo("Enable mkdir/rm/mv/cp tools", false);
+        const enableWebFetch = await prompt.askYesNo("Enable web_fetch tool", true);
+
+        const summaryRaw = (await prompt.askWithDefault("Tool call summaries [full|minimal|off]", "full")).toLowerCase();
+        const toolCallSummaries: ToolSummaryMode =
+            summaryRaw === "minimal" || summaryRaw === "off" ? summaryRaw : "full";
+
+        const searchProviderRaw = (await prompt.askWithDefault("Search provider", "duckduckgo")).toLowerCase();
+        const searchProvider: SearchProvider = searchProviderRaw === "tavily" ? "tavily" : "duckduckgo";
+        const tavilyApiKey =
+            searchProvider === "tavily" ? await prompt.askRequired("Tavily API key: ") : "";
+
+        return {
+            provider,
+            searchProvider,
+            useToml,
+            enableDiscord,
+            discordToken,
+            allowBots,
+            authorizedUserId,
+            enableReasoning,
+            reasoningSummary,
+            reasoningSummaryModel,
+            basicTools,
+            advancedTools,
+            enableWebFetch,
+            toolCallSummaries,
+            openrouterKey,
+            openrouterModel,
+            ollamaBaseUrl,
+            ollamaModel,
+            customApiType,
+            customBaseUrl,
+            customApiKey,
+            customModel,
+            customAnthropicVersion,
+            customMaxTokens,
+            tavilyApiKey,
+        };
+    } finally {
+        prompt.close();
     }
-    throw new Error('Unknown tool: ' + String(name));
 }
 
-export async function deactivate(): Promise<void> {
-    // optional cleanup
-}
+async function main(): Promise<void> {
+    header("opoclaw onboarding wizard");
+    console.log("This wizard sets up config.toml and a starter workspace.\n");
 
-const _pluginTypeCheck = { tools, invoke, deactivate } satisfies PluginModule;
-void _pluginTypeCheck;
-`;
-        writeFileSync(resolve(templateDir, "plugin.ts"), templatePluginTs);
-        const templateReadme = `# Plugin template
+    const answers = await collectAnswers();
 
-1. Copy this folder to \`workspace/plugins/<your-plugin-name>\`.
-2. Update \`plugin.json\` (\`name\`, \`description\`).
-3. Rename tool names to a unique prefix (for example \`my_plugin_*\`).
-4. Keep tools OpenAI/OpenRouter \`function\` tools only.
+    header("Writing config");
+    writeFileSync(CONFIG_FILE, buildConfig(answers), "utf-8");
+    ok(`Wrote ${CONFIG_FILE}`);
 
-Contract:
+    header("Setting up workspace");
+    scaffoldWorkspace(answers.useToml);
 
-- Export \`tools\` (array of function tool descriptors).
-- Export \`invoke(name, args, context)\`.
-- Optionally export \`deactivate()\`.
-
-Context filesystem helpers:
-
-- \`context.fs.plugin.*\` for files under your plugin directory.
-- \`context.fs.workspace.*\` for files under the workspace root.
-
-Notes:
-
-- Legacy plugin APIs are removed.
-- \`permissions\`, \`mounts\`, and \`hooks\` in \`plugin.json\` are rejected.
-`;
-        writeFileSync(resolve(templateDir, "README.md"), templateReadme);
-        ok('Created plugin template in workspace/plugins/_template');
-    } else {
-        info('Plugin template already exists — skipped');
-    }
-
-    // ── Done ───────────────────────────────────────────────────────────────
-
-    header("All done!");
-
+    header("All done");
     console.log(`${GREEN}opoclaw is ready.${RESET}\n`);
     console.log("Next steps:");
     console.log(`  1. Review ${CONFIG_FILE}`);
-    console.log(`  2. Fill in workspace/SOUL.md and workspace/IDENTITY.md`);
-    console.log(`  3. Run: bun run src/index.ts`);
-    console.log(`  4. Mention your bot in Discord to test\n`);
+    console.log(`  2. Fill in ${resolve(WORKSPACE_DIR, "config")}`);
+    console.log("  3. Run: bun run src/index.ts");
+    if (answers.enableDiscord) {
+        console.log("  4. Mention your bot in Discord to test");
+    }
+    console.log("");
 }
 
-main().catch((err) => {
-    console.error(err);
+main().catch((error) => {
+    console.error(error);
     process.exit(1);
 });

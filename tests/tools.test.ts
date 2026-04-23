@@ -34,7 +34,7 @@ describe("tools", () => {
     const res = await handleToolCall("list_files", {}, {} as any);
     // Normalize path separators to forward slashes for comparison
     const normalizedRes = res.replace(/\\/g, '/');
-    expect(normalizedRes).toContain("__tools_test__/a.txt");
+    expect(normalizedRes).toContain("- __tools_test__/a.txt");
     await cleanup();
   });
 
@@ -97,6 +97,35 @@ describe("tools", () => {
       const res = await handleToolCall("search", { query: "test", count: "1" } as any, {} as any);
       expect(res).toContain("https://ddg.example");
       expect(res).toContain("Title");
+    } finally {
+      globalThis.fetch = originalFetch as any;
+    }
+  });
+
+  test("web_fetch rejects non-http urls", async () => {
+    await expect(
+      handleToolCall("web_fetch", { url: "file:///etc/passwd" } as any, {} as any)
+    ).rejects.toThrow(/Only http and https URLs are allowed/);
+  });
+
+  test("search clamps count to sane bounds", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input);
+      if (url.includes("duckduckgo.com/html/")) {
+        const html = [
+          `<a class="result__a" href="https://one.example">One</a><a class="result__snippet">A</a>`,
+          `<a class="result__a" href="https://two.example">Two</a><a class="result__snippet">B</a>`,
+        ].join("");
+        return new Response(html, { status: 200 });
+      }
+      return new Response("", { status: 200 });
+    }) as any;
+
+    try {
+      const res = await handleToolCall("search", { query: "test", count: "0" } as any, {} as any);
+      expect(res).toContain("https://one.example");
+      expect(res).not.toContain("https://two.example");
     } finally {
       globalThis.fetch = originalFetch as any;
     }
