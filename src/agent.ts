@@ -741,6 +741,20 @@ export class AgentSession {
         return injected;
     }
 
+    private async yieldForBackgroundJobs(): Promise<void> {
+        if (!Array.from(this.backgroundJobs.values()).some((job) => job.status === "running" && !job.injected)) {
+            return;
+        }
+        // Yield several times to allow microtasks and some macrotasks (I/O) to finish
+        // for background jobs that are expected to be nearly immediate.
+        for (let i = 0; i < 5; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            if (!Array.from(this.backgroundJobs.values()).some((job) => job.status === "running" && !job.injected)) {
+                break;
+            }
+        }
+    }
+
     async evaluate(
         systemPrompt: string,
         config: OpoclawConfig,
@@ -888,6 +902,11 @@ export class AgentSession {
                 if (callbacks.onToolBatch) {
                     await callbacks.onToolBatch(toolCalls, toolResults, this.sessionId);
                 }
+
+                // Let background subagent jobs settle so completed results can be
+                // injected before the next model turn without hard-blocking.
+                await this.yieldForBackgroundJobs();
+                this.injectBackgroundResultsIntoContext();
 
                 continue;
             }
