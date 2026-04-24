@@ -1,18 +1,8 @@
-import { startDiscord } from "./channels/discord.ts";
-import { startIRC } from "./channels/irc.ts";
+import { startCore } from "./channels/core.ts";
 
-// Start enabled channels with error handling
 try {
-    await startDiscord();
+    await startCore();
 } catch (err: any) {
-    console.error(`Discord channel failed to start: ${err.message}`);
-    // Exit with error code to indicate failure
+    console.error(`Core channel failed to start: ${err.message}`);
     process.exit(1);
-}
-
-try {
-    await startIRC();
-} catch (err: any) {
-    console.error(`IRC channel failed to start: ${err.message}`);
-    // Don't exit if only IRC fails, but log error
 }

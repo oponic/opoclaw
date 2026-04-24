@@ -60,6 +60,12 @@ export interface OpoclawConfig {
             password?: string;
             channels?: string;
         };
+        openai?: {
+            enabled?: boolean;
+            host?: string;
+            port?: number;
+            api_key?: string;
+        };
     };
     enable_reasoning?: boolean;
     reasoning_summary?: boolean;

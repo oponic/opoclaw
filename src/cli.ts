@@ -22,6 +22,7 @@ const OPCLAW_BIN = `${BIN_DIR}/opoclaw`;
 const OPCLAW_BIN_WIN = `${BIN_DIR}/opoclaw.cmd`;
 const LOCK_FILE = resolve(OP_DIR, ".gateway.lock");
 const HIBERNATE_FILE = resolve(OP_DIR, ".gateway.hibernate");
+const CORE_URL = "http://127.0.0.1:6112";
 
 // macOS plist
 const PLIST_NAME = "com.oponic.opoclaw.plist";
@@ -234,7 +235,31 @@ function clearGatewayPID() {
   try { unlinkSync(LOCK_FILE); } catch {}
 }
 
+async function requestCore(path: string, init?: RequestInit): Promise<Response | null> {
+  try {
+    return await fetch(`${CORE_URL}${path}`, init);
+  } catch {
+    return null;
+  }
+}
+
+async function getCoreStatus(): Promise<any | null> {
+  const res = await requestCore("/health");
+  if (!res?.ok) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 async function gatewayStart() {
+  const core = await getCoreStatus();
+  if (core?.ok) {
+    warn(`Gateway already running (PID ${core.pid})`);
+    return;
+  }
+
   const pid = getGatewayPID();
   if (pid) {
     warn(`Gateway already running (PID ${pid})`);
@@ -308,6 +333,17 @@ async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
 }
 
 async function gatewayStop() {
+  const coreRes = await requestCore("/control/stop", { method: "POST" });
+  if (coreRes?.ok) {
+    const pid = getGatewayPID();
+    if (pid) {
+      await waitForExit(pid, 4000);
+    }
+    clearGatewayPID();
+    ok("Gateway stopped");
+    return;
+  }
+
   const pid = getGatewayPID();
   if (!pid) {
     warn("Gateway not running");
@@ -351,16 +387,31 @@ async function gatewayRestart() {
   await gatewayStart();
 }
 
-function gatewayStatus() {
+async function gatewayStatus() {
+  const core = await getCoreStatus();
+  if (core?.ok) {
+    ok(`Gateway running (PID ${core.pid})`);
+    if (core.hibernating) {
+      warn("Gateway is hibernating");
+    }
+    return;
+  }
+
   const pid = getGatewayPID();
   if (pid) {
     ok(`Gateway running (PID ${pid})`);
-  } else {
-    warn("Gateway not running");
+    return;
   }
+  warn("Gateway not running");
 }
 
-function gatewayHibernate() {
+async function gatewayHibernate() {
+  const coreRes = await requestCore("/control/hibernate", { method: "POST" });
+  if (coreRes?.ok) {
+    ok("Gateway hibernation enabled");
+    return;
+  }
+
   try {
     writeFileSync(HIBERNATE_FILE, new Date().toISOString());
     ok("Gateway hibernation enabled");
@@ -721,8 +772,8 @@ async function main() {
         case "start":   await gatewayStart(); break;
         case "stop":    await gatewayStop(); break;
         case "restart": await gatewayRestart(); break;
-        case "hibernate": gatewayHibernate(); break;
-        case "status":  gatewayStatus(); break;
+        case "hibernate": await gatewayHibernate(); break;
+        case "status":  await gatewayStatus(); break;
         default:
           console.log("Usage: opoclaw gateway {start|stop|restart|hibernate|status}");
       }

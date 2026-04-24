@@ -15,4 +15,4 @@
 - [ ] actual shell access
 - [ ] tui for direct communication
 - [x] fix up tools
-- [ ] gateway manager
+- [x] gateway manager
