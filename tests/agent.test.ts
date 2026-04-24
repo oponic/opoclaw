@@ -21,9 +21,11 @@ describe("agent", () => {
         {
           provider: { active: "openrouter", openrouter: { api_key: "k", model: "m", base_url: "http://localhost" } },
         } as any,
-        () => {},
-        () => {},
-        () => {},
+        {
+          onFirstToken: () => {},
+          onToolCall: () => {},
+          onToolCallError: () => {}
+      },
       );
       expect(result.text).toBe("Hello");
     } finally {
@@ -40,9 +42,11 @@ describe("agent", () => {
           [{ role: "user", content: "hi" }],
           "system",
           { provider: { active: "openrouter", openrouter: { api_key: "k", model: "m", base_url: "http://localhost" } } } as any,
-          () => {},
-          () => {},
-          () => {},
+          {
+            onFirstToken: () => {},
+            onToolCall: () => {},
+            onToolCallError: () => {}
+        },
         )
       ).rejects.toThrow();
     } finally {

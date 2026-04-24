@@ -606,17 +606,21 @@ export async function runDeepResearch(
     return "Deep research terminated (iteration limit reached).";
 }
 
-export async function runAgent(
-    history: Message[],
-    systemPrompt: string,
-    config: OpoclawConfig,
+export interface AgentCallbacks {
     onFirstToken: () => void,
     onToolCall: (call: ToolCall, uniqueId: string) => void,
     onToolCallError: (uniqueId: string, error: Error) => void,
     requestToolApproval?: (call: ToolCall, uniqueId: string) => Promise<{ approved: boolean; message?: string }>,
     onToolBatch?: (calls: ToolCall[], results: ToolResult[], sessionId?: string) => Promise<void>,
     onDeepResearchSummary?: (summary: string) => Promise<void>,
-    executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>,
+    executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>   
+}
+
+export async function runAgent(
+    history: Message[],
+    systemPrompt: string,
+    config: OpoclawConfig,
+    agent_callbacks: AgentCallbacks,
     sessionId?: string
 ): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
     const messages: Message[] = [
@@ -628,7 +632,7 @@ export async function runAgent(
     const wrappedOnFirstToken = () => {
         if (!firstTokenFired) {
             firstTokenFired = true;
-            onFirstToken();
+            agent_callbacks.onFirstToken();
         }
     };
 
@@ -660,21 +664,21 @@ export async function runAgent(
                 let uniqueId = Math.random().toString(36).substring(2, 10);
                 try {
                     const args = JSON.parse(tc.function.arguments);
-                    if (onToolCall) {
-                        onToolCall(tc, uniqueId);
+                    if (agent_callbacks.onToolCall) {
+                        agent_callbacks.onToolCall(tc, uniqueId);
                     }
                     const runTool = async () => {
-                        if (executeTool) {
-                            const handled = await executeTool(tc, args);
+                        if (agent_callbacks.executeTool) {
+                            const handled = await agent_callbacks.executeTool(tc, args);
                             if (handled !== undefined) return handled;
                         }
                         if (tc.function.name === "deep_research") {
-                            return await runDeepResearch(String(args.query || ""), config, onDeepResearchSummary, sessionId);
+                            return await runDeepResearch(String(args.query || ""), config, agent_callbacks.onDeepResearchSummary, sessionId);
                         }
                         return await handleToolCall(tc.function.name, args, config);
                     };
-                    if (requestToolApproval) {
-                        const approval = await requestToolApproval(tc, uniqueId);
+                    if (agent_callbacks.requestToolApproval) {
+                        const approval = await agent_callbacks.requestToolApproval(tc, uniqueId);
                         if (!approval.approved) {
                             result = approval.message || "Not authorized to perform this action.";
                         } else {
@@ -684,8 +688,8 @@ export async function runAgent(
                         result = await runTool();
                     }
                 } catch (e: any) {
-                    if (onToolCallError) {
-                        onToolCallError(uniqueId, e);
+                    if (agent_callbacks.onToolCallError) {
+                        agent_callbacks.onToolCallError(uniqueId, e);
                     }
                     result = `Error: ${e.toString()}`;
                 }
@@ -702,8 +706,8 @@ export async function runAgent(
                 });
             }
 
-            if (onToolBatch) {
-                await onToolBatch(toolCalls, toolResults, sessionId);
+            if (agent_callbacks.onToolBatch) {
+                await agent_callbacks.onToolBatch(toolCalls, toolResults, sessionId);
             }
 
             continue;

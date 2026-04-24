@@ -175,7 +175,11 @@ export async function startIRC(): Promise<void> {
             const userText = cleaned || "(empty message)";
             const historyWithUser = history.concat([{ role: "user", content: `[${sender}]: ${userText}` }]);
 
-            const { text: responseText } = await runAgent(historyWithUser, systemPrompt, config, () => {}, () => {}, () => {}, undefined, undefined, undefined, undefined);
+            const { text: responseText } = await runAgent(historyWithUser, systemPrompt, config, {
+                onFirstToken: () => {},
+                onToolCall: () => {},
+                onToolCallError: () => {}
+            });
 
             pushHistory(key, { role: "user", content: `[${sender}]: ${userText}` });
             if (responseText && responseText.trim() !== "HEARTBEAT_OK") {

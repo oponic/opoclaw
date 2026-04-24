@@ -827,13 +827,15 @@ export async function startDiscord(): Promise<void> {
                 history,
                 systemPrompt,
                 config,
+                {
                 onFirstToken,
                 onToolCall,
                 onToolCallError,
                 requestToolApproval,
                 onToolBatch,
                 onDeepResearchSummary,
-                executeTool,
+                executeTool
+                },
                 sessionId
             );
 
