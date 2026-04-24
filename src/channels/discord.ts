@@ -17,7 +17,7 @@ import {
 import { resolve } from "path";
 import { unlink, readFile as readFileFs } from "fs/promises";
 import { readFileAsync } from "../workspace.ts";
-import { runAgent, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
+import { AgentSession, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
 import { getFilePath } from "../workspace.ts";
 import { pendingFileSend, clearPendingFileSend } from "../tools.ts";
 
@@ -60,6 +60,7 @@ type PollState = {
 };
 
 const POLLS = new Map<string, PollState>();
+const channelSessions = new Map<string, AgentSession>();
 
 function makeBar(value: number, total: number, width = 12): string {
     if (total <= 0) return "░".repeat(width);
@@ -238,8 +239,40 @@ async function addReaction(msg: Message, emoji: string): Promise<void> {
     }
 }
 
+function formatDiscordMessage(m: Message, imageAttachments?: { url: string }[]): ChatMessage | null {
+    const isBot = m.author.id === client.user!.id;
+    const text = formatMentions(m.content, m).trim();
+    if (!text && m.attachments.size === 0) return null;
+
+    const reactionList = Array.from(m.reactions.cache.values())
+        .map((r) => `${r.emoji.name}${r.count && r.count > 1 ? `×${r.count}` : ""}`)
+        .join(" ");
+    const reactionSuffix = reactionList ? ` (reactions: ${reactionList})` : "";
+    const idPrefix = `[id:${m.id}] `;
+
+    if (isBot) {
+        const cleanedText = text
+            .split("\n")
+            .filter((line) => !line.trim().startsWith("-#"))
+            .join("\n")
+            .trim();
+        if (!cleanedText) return null;
+        return { role: "assistant", content: `${idPrefix}${cleanedText}${reactionSuffix}` };
+    }
+
+    const textContent = `${idPrefix}[${m.author.displayName} (${m.author.username})]: ${text}${reactionSuffix}`;
+    if (imageAttachments && imageAttachments.length > 0) {
+        const parts: any[] = [{ type: "text", text: textContent }];
+        for (const img of imageAttachments) {
+            parts.push({ type: "image_url", image_url: { url: img.url } });
+        }
+        return { role: "user", content: parts };
+    }
+    return { role: "user", content: textContent };
+}
+
 async function buildChannelHistory(msg: Message): Promise<ChatMessage[]> {
-    const messages = await msg.channel.messages.fetch({ limit: 50 });
+    const messages = await msg.channel.messages.fetch({ limit: 40 });
     const sorted = Array.from(messages.values()).sort(
         (a, b) => a.createdTimestamp - b.createdTimestamp
     );
@@ -247,37 +280,12 @@ async function buildChannelHistory(msg: Message): Promise<ChatMessage[]> {
     const history: ChatMessage[] = [];
     for (const m of sorted) {
         if (m.id === msg.id) continue;
-
-        const isBot = m.author.id === client.user!.id;
-        let text = formatMentions(m.content, m).trim();
-        if (!text && m.attachments.size === 0) continue;
-
-        const reactionList = Array.from(m.reactions.cache.values())
-            .map((r) => `${r.emoji.name}${r.count && r.count > 1 ? `×${r.count}` : ""}`)
-            .join(" ");
-        const reactionSuffix = reactionList ? ` (reactions: ${reactionList})` : "";
-        const idPrefix = `[id:${m.id}] `;
-
-        if (isBot) {
-            const cleanedText = text
-                .split("\n")
-                .filter((line) => !line.trim().startsWith("-#"))
-                .join("\n")
-                .trim();
-            if (!cleanedText) continue;
-            history.push({ role: "assistant", content: `${idPrefix}${cleanedText}${reactionSuffix}` });
-        } else {
-            const shownText = text || "";
-            history.push({
-                role: "user",
-                content: `${idPrefix}[${m.author.displayName} (${m.author.username})]: ${shownText}${reactionSuffix}`,
-            });
-        }
+        const formatted = formatDiscordMessage(m);
+        if (formatted) history.push(formatted);
     }
 
     return history;
 }
-
 
 export async function startDiscord(): Promise<void> {
     const startupConfig = loadConfig();
@@ -306,8 +314,24 @@ export async function startDiscord(): Promise<void> {
             }
         }
 
-        // Only respond to mentions or replies
-        if (!isMention && !isReplyToBot) return;
+        // Get or bootstrap session for this channel
+        let session = channelSessions.get(msg.channelId);
+        if (!session) {
+            const useSessionIds = config.provider?.openrouter?.use_session_ids !== false;
+            const sid = useSessionIds ? `opoclaw-discord-${client.user!.id}-${msg.channelId}-${Date.now()}` : undefined;
+            session = new AgentSession(sid);
+            channelSessions.set(msg.channelId, session);
+            for (const m of await buildChannelHistory(msg)) {
+                session.addMessage(m);
+            }
+        }
+
+        // Track all messages for context, but only respond to mentions or replies
+        if (!isMention && !isReplyToBot) {
+            const formatted = formatDiscordMessage(msg);
+            if (formatted) session.addMessage(formatted);
+            return;
+        }
 
         if (await isHibernating()) {
             const authorizedUserId = config.authorized_user_id?.trim();
@@ -369,13 +393,12 @@ export async function startDiscord(): Promise<void> {
 
         const useToml = useTomlFiles(config);
 
-        const [systemBase, agentsContent, soulContent, identityContent, memoryContent, history, skills] = await Promise.all([
+        const [systemBase, agentsContent, soulContent, identityContent, memoryContent, skills] = await Promise.all([
             loadSystemPromptBase(),
             readFileAsync(useToml ? 'agents.toml' : 'AGENTS.md').catch(() => ""),
             readFileAsync(useToml ? 'soul.toml' : 'SOUL.md').catch(() => ""),
             readFileAsync(useToml ? 'identity.toml' : 'IDENTITY.md').catch(() => ""),
             readFileAsync(useToml ? 'memory.toml' : 'MEMORY.md').catch(() => ""),
-            buildChannelHistory(msg),
             listSkills(),
         ]);
 
@@ -402,32 +425,13 @@ export async function startDiscord(): Promise<void> {
         const pollSummary = getPollSummary(msg.channel.id);
         if (pollSummary) systemPromptParts.push(pollSummary);
         const systemPrompt = systemPromptParts.join("\n") || "You are a helpful assistant.";
-        const userText = formatMentions(msg.content, msg).trim();
-        const idPrefix = `[id:${msg.id}] `;
         const visionEnabled = getVisionEnabled(config);
         const imageAttachments = visionEnabled
             ? Array.from(msg.attachments.values()).filter((a) => (a.contentType || "").startsWith("image/"))
             : [];
 
-        const currentReactionList = Array.from(msg.reactions.cache.values())
-            .map((r) => `${r.emoji.name}${r.count && r.count > 1 ? `×${r.count}` : ""}`)
-            .join(" ");
-        const currentReactionSuffix = currentReactionList ? ` (reactions: ${currentReactionList})` : "";
-
-        if (visionEnabled && imageAttachments.length > 0) {
-            const parts: any[] = [];
-        const text = `${idPrefix}[${msg.author.displayName} (${msg.author.username})]: ${userText || ""}${currentReactionSuffix}`;
-            parts.push({ type: "text", text });
-            for (const img of imageAttachments) {
-                parts.push({ type: "image_url", image_url: { url: img.url } });
-            }
-            history.push({ role: "user", content: parts });
-        } else {
-        history.push({
-            role: "user",
-            content: `${idPrefix}[${msg.author.displayName} (${msg.author.username})]: ${userText || ""}${currentReactionSuffix}`,
-        });
-        }
+        const formatted = formatDiscordMessage(msg, imageAttachments.length > 0 ? imageAttachments : undefined);
+        if (formatted) session.addMessage(formatted);
 
         let swappedToThinking = false;
         let gotToolCall = false;
@@ -817,25 +821,19 @@ export async function startDiscord(): Promise<void> {
             return undefined;
         };
 
-        const sessionId = config.provider?.openrouter?.use_session_ids !== false
-            ? `opoclaw-discord-${client.user!.id}-${msg.channelId}-${msg.id}`
-            : undefined;
-
         try {
-            const { text: responseText, reasoningSummary } = await runAgent(
-                history,
+            const { text: responseText, reasoningSummary } = await session.evaluate(
                 systemPrompt,
                 config,
                 {
-                onFirstToken,
-                onToolCall,
-                onToolCallError,
-                requestToolApproval,
-                onToolBatch,
-                onDeepResearchSummary,
-                executeTool
-                },
-                sessionId
+                    onFirstToken,
+                    onToolCall,
+                    onToolCallError,
+                    requestToolApproval,
+                    onToolBatch,
+                    onDeepResearchSummary,
+                    executeTool,
+                }
             );
 
             // Prefix reasoning summary if it's a real summary (not fallback)

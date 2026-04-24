@@ -616,120 +616,162 @@ export interface AgentCallbacks {
     executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>   
 }
 
+export class AgentSession {
+    sessionId: string | undefined;
+    messages: Message[];
+
+    constructor(sessionId?: string) {
+        this.sessionId = sessionId;
+        this.messages = [];
+    }
+
+    addMessage(msg: Message): void {
+        this.messages.push(msg);
+        const userCount = this.messages.filter(m => m.role === "user").length;
+        if (userCount > 50) {
+            const toDrop = userCount - 40;
+            let dropped = 0;
+            let cutIndex = 0;
+            for (let i = 0; i < this.messages.length; i++) {
+                if (this.messages[i]!.role === "user") {
+                    dropped++;
+                    if (dropped === toDrop) {
+                        cutIndex = i + 1;
+                        break;
+                    }
+                }
+            }
+            this.messages.splice(0, cutIndex);
+        }
+    }
+
+    async evaluate(
+        systemPrompt: string,
+        config: OpoclawConfig,
+        callbacks: AgentCallbacks
+    ): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
+        const systemMessage: Message = { role: "system", content: systemPrompt };
+
+        let firstTokenFired = false;
+        const wrappedOnFirstToken = () => {
+            if (!firstTokenFired) {
+                firstTokenFired = true;
+                callbacks.onFirstToken();
+            }
+        };
+
+        let didRunTools = false;
+
+        for (let iteration = 0; iteration < 20; iteration++) {
+            const result = await streamCompletion(
+                [systemMessage, ...this.messages],
+                config,
+                wrappedOnFirstToken,
+                undefined,
+                this.sessionId
+            );
+            const { text, toolCalls, usage } = result;
+
+            if (usage) {
+                await recordUsage(usage, getModelId(config));
+            }
+
+            if (toolCalls.length > 0) {
+                didRunTools = true;
+                this.messages.push({
+                    role: "assistant",
+                    content: text,
+                    tool_calls: toolCalls,
+                });
+
+                const toolResults: ToolResult[] = [];
+                for (const tc of toolCalls) {
+                    let toolResult: string;
+                    const uniqueId = Math.random().toString(36).substring(2, 10);
+                    try {
+                        const args = JSON.parse(tc.function.arguments);
+                        if (callbacks.onToolCall) {
+                            callbacks.onToolCall(tc, uniqueId);
+                        }
+                        const runTool = async () => {
+                            if (callbacks.executeTool) {
+                                const handled = await callbacks.executeTool(tc, args);
+                                if (handled !== undefined) return handled;
+                            }
+                            if (tc.function.name === "deep_research") {
+                                const deepResearchSessionId = this.sessionId ? `${this.sessionId}-deepresearch-${Date.now()}` : undefined;
+                                return await runDeepResearch(String(args.query || ""), config, callbacks.onDeepResearchSummary, deepResearchSessionId);
+                            }
+                            return await handleToolCall(tc.function.name, args, config);
+                        };
+                        if (callbacks.requestToolApproval) {
+                            const approval = await callbacks.requestToolApproval(tc, uniqueId);
+                            if (!approval.approved) {
+                                toolResult = approval.message || "Not authorized to perform this action.";
+                            } else {
+                                toolResult = await runTool();
+                            }
+                        } else {
+                            toolResult = await runTool();
+                        }
+                    } catch (e: any) {
+                        if (callbacks.onToolCallError) {
+                            callbacks.onToolCallError(uniqueId, e);
+                        }
+                        toolResult = `Error: ${e.toString()}`;
+                    }
+                    toolResults.push({
+                        name: tc.function.name,
+                        arguments: tc.function.arguments,
+                        output: toolResult,
+                    });
+                    this.messages.push({
+                        role: "tool",
+                        tool_call_id: tc.id,
+                        name: tc.function.name,
+                        content: toolResult,
+                    });
+                }
+
+                if (callbacks.onToolBatch) {
+                    await callbacks.onToolBatch(toolCalls, toolResults, this.sessionId);
+                }
+
+                continue;
+            }
+
+            const responseText = text ?? "";
+
+            let reasoningSummaryText: string | undefined;
+            if (config.reasoning_summary && config.enable_reasoning && result.reasoning) {
+                reasoningSummaryText = await generateReasoningSummary(
+                    result.reasoning,
+                    config,
+                    this.sessionId
+                );
+            }
+
+            this.messages.push({ role: "assistant", content: responseText });
+
+            return { text: responseText, reasoningSummary: reasoningSummaryText, ranTools: didRunTools };
+        }
+
+        const fallback = "(agent loop limit reached)";
+        this.messages.push({ role: "assistant", content: fallback });
+        return { text: fallback };
+    }
+}
+
 export async function runAgent(
     history: Message[],
     systemPrompt: string,
     config: OpoclawConfig,
-    agent_callbacks: AgentCallbacks,
+    callbacks: AgentCallbacks,
     sessionId?: string
 ): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
-    const messages: Message[] = [
-        { role: "system", content: systemPrompt },
-        ...history,
-    ];
-
-    let firstTokenFired = false;
-    const wrappedOnFirstToken = () => {
-        if (!firstTokenFired) {
-            firstTokenFired = true;
-            agent_callbacks.onFirstToken();
-        }
-    };
-
-    for (let iteration = 0; iteration < 20; iteration++) {
-        const result = await streamCompletion(
-            messages,
-            config,
-            wrappedOnFirstToken,
-            undefined,
-            sessionId
-        );
-        const { text, toolCalls, usage } = result;
-
-        // Record usage
-        if (usage) {
-            await recordUsage(usage, getModelId(config));
-        }
-
-        if (toolCalls.length > 0) {
-            messages.push({
-                role: "assistant",
-                content: text,
-                tool_calls: toolCalls,
-            });
-
-            const toolResults: ToolResult[] = [];
-            for (const tc of toolCalls) {
-                let result: string;
-                let uniqueId = Math.random().toString(36).substring(2, 10);
-                try {
-                    const args = JSON.parse(tc.function.arguments);
-                    if (agent_callbacks.onToolCall) {
-                        agent_callbacks.onToolCall(tc, uniqueId);
-                    }
-                    const runTool = async () => {
-                        if (agent_callbacks.executeTool) {
-                            const handled = await agent_callbacks.executeTool(tc, args);
-                            if (handled !== undefined) return handled;
-                        }
-                        if (tc.function.name === "deep_research") {
-                            return await runDeepResearch(String(args.query || ""), config, agent_callbacks.onDeepResearchSummary, sessionId);
-                        }
-                        return await handleToolCall(tc.function.name, args, config);
-                    };
-                    if (agent_callbacks.requestToolApproval) {
-                        const approval = await agent_callbacks.requestToolApproval(tc, uniqueId);
-                        if (!approval.approved) {
-                            result = approval.message || "Not authorized to perform this action.";
-                        } else {
-                            result = await runTool();
-                        }
-                    } else {
-                        result = await runTool();
-                    }
-                } catch (e: any) {
-                    if (agent_callbacks.onToolCallError) {
-                        agent_callbacks.onToolCallError(uniqueId, e);
-                    }
-                    result = `Error: ${e.toString()}`;
-                }
-                toolResults.push({
-                    name: tc.function.name,
-                    arguments: tc.function.arguments,
-                    output: result,
-                });
-                messages.push({
-                    role: "tool",
-                    tool_call_id: tc.id,
-                    name: tc.function.name,
-                    content: result,
-                });
-            }
-
-            if (agent_callbacks.onToolBatch) {
-                await agent_callbacks.onToolBatch(toolCalls, toolResults, sessionId);
-            }
-
-            continue;
-        }
-
-        // No tool calls — final text response
-        const responseText = text ?? "";
-
-        // Generate reasoning summary if enabled and we have reasoning text
-        let reasoningSummaryText: string | undefined;
-        if (config.reasoning_summary && config.enable_reasoning && result.reasoning) {
-            reasoningSummaryText = await generateReasoningSummary(
-                result.reasoning,
-                config,
-                sessionId
-            );
-        }
-
-        return { text: responseText, reasoningSummary: reasoningSummaryText, ranTools: toolCalls.length > 0 };
-    }
-
-    return { text: "(agent loop limit reached)" };
+    const session = new AgentSession(sessionId);
+    session.messages = [...history];
+    return session.evaluate(systemPrompt, config, callbacks);
 }
 
 export type { Message, OpoclawConfig };
