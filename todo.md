@@ -10,3 +10,6 @@
 - [ ] `run_background_subagent` tool
 - [ ] reply awareness
 - [ ] thread creation
+- [ ] return of superior installers
+- [ ] plugins
+- [ ] actual shell access
