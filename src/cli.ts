@@ -32,8 +32,6 @@ const SYSTEMD_PATH = `/etc/systemd/system/${SYSTEMD_NAME}`;
 
 // ── Colors ─────────────────────────────────────────────────────────────────
 
-const b = (s: string) => kleur.bold(s);
-
 const info = (s: string) => console.log(`${kleur.cyan("[opoclaw]")} ${s}`);
 const ok = (s: string) => console.log(`${kleur.green("✓")} ${s}`);
 const warn = (s: string) => console.log(`${kleur.yellow("⚠")} ${s}`);
@@ -78,7 +76,7 @@ async function showUsage() {
     cost += s.cost || 0;
   }
 
-  console.log(`\n${b("═══ opoclaw usage (last 24h) ═══")}\n`);
+  console.log(`\n${kleur.bold("═══ opoclaw usage (last 24h) ═══")}\n`);
 
   console.log(`  Requests:    ${recent.length}`);
   console.log(`  Input:       ${(input / 1000).toFixed(1)}k tokens`);
@@ -87,7 +85,7 @@ async function showUsage() {
   console.log(`  Cache write: ${(cacheWrite / 1000).toFixed(1)}k tokens`);
   console.log(`  Cost:        $${cost.toFixed(4)}`);
 
-  console.log(`\n${b("─── all-time ───")}\n`);
+  console.log(`\n${kleur.bold("─── all-time ───")}\n`);
   console.log(`  Total cost:  $${data.total.cost.toFixed(4)}`);
   console.log(`  Total reqs:  ${data.sessions.length}`);
   console.log();
@@ -113,7 +111,7 @@ async function checkForUpdate(silent = false): Promise<string | null> {
     if (latestTag && latestTag !== currentTag) {
       if (!silent) {
         console.log(kleur.yellow(`📦 Update available: ${currentTag} → ${latestTag}`));
-        console.log(`   Run ${b("opoclaw update")} to upgrade.\n`);
+        console.log(`   Run ${kleur.bold("opoclaw update")} to upgrade.\n`);
       }
       return latestTag;
     }
@@ -777,51 +775,51 @@ async function main() {
     case "explainer":
     case "explain":
       console.log(`
-${b("How opoclaw works")}
+${kleur.bold("How opoclaw works")}
 
 opoclaw is a Discord bot framework. When someone mentions the bot:
 
-1. ${b("Message received")} — Discord event triggers the MessageCreate handler.
+1. ${kleur.bold("Message received")} — Discord event triggers the MessageCreate handler.
    Only messages that @mention the bot (or reply to it) are processed.
    Own messages are always ignored. Other bots are ignored unless
    channel.discord.allow_bots=true in config.toml.
 
-2. ${b("System prompt loaded")} — Three workspace files are read and composed:
+2. ${kleur.bold("System prompt loaded")} — Three workspace files are read and composed:
    - SOUL.md — personality, tone, rules, vibe
    - IDENTITY.md — name, appearance, self-description
    - AGENTS.md — operating instructions, memory system, safety rules
    These form the system prompt sent to the LLM.
 
-3. ${b("Channel history")} — Last 50 messages in the channel are fetched,
+3. ${kleur.bold("Channel history")} — Last 50 messages in the channel are fetched,
    formatted as [name]: content, and sent as conversation context.
 
-4. ${b("LLM call")} — The composed prompt + history is sent to the configured
+4. ${kleur.bold("LLM call")} — The composed prompt + history is sent to the configured
    provider (OpenRouter, Ollama, or custom endpoint). The model generates
    a response. If reasoning is enabled, the model's thinking tokens are
    captured during streaming.
 
-5. ${b("Tools")} — The model can request tool calls (file operations, etc.).
+5. ${kleur.bold("Tools")} — The model can request tool calls (file operations, etc.).
    Tools execute in a loop (max 20 iterations) until the model stops
    requesting them or sends a final text response.
 
-6. ${b("Response sent")} — The reply is sent back to Discord, split into
+6. ${kleur.bold("Response sent")} — The reply is sent back to Discord, split into
    chunks if over 1990 characters.
 
-${b("Security profile")}
+${kleur.bold("Security profile")}
 
-- ${b("No data exfiltration")} — workspace files (SOUL, IDENTITY, AGENTS,
+- ${kleur.bold("No data exfiltration")} — workspace files (SOUL, IDENTITY, AGENTS,
   MEMORY) are sent to the LLM provider as part of the prompt. Do not
   put secrets in these files.
-- ${b("Token safety")} — Discord token and API keys live in config.toml,
+- ${kleur.bold("Token safety")} — Discord token and API keys live in config.toml,
   never sent to the LLM or exposed in responses.
-- ${b("Tool sandboxing")} — file tools only read from the workspace directory.
+- ${kleur.bold("Tool sandboxing")} — file tools only read from the workspace directory.
   The send_file tool reads workspace files and attaches them to messages.
-- ${b("No system commands")} — the bot cannot run shell commands or access
+- ${kleur.bold("No system commands")} — the bot cannot run shell commands or access
   your filesystem outside the workspace.
-- ${b("Rate limiting")} — max 20 agent iterations per message prevents
+- ${kleur.bold("Rate limiting")} — max 20 agent iterations per message prevents
   runaway loops.
 
-${b("Config")}
+${kleur.bold("Config")}
 config.toml lives at the project root. Onboard wizard: opoclaw onboard.
 Channels live under [channel.*]. Providers live under [provider.*].
 Toggle: channel.discord.allow_bots, enable_reasoning, reasoning_summary.
@@ -836,7 +834,7 @@ Toggle: channel.discord.allow_bots, enable_reasoning, reasoning_summary.
   ${banner()}
 ${kleur.magenta("Lightweight AI agent framework")}
 
-${b("Commands:")}
+${kleur.bold("Commands:")}
   usage              Show token usage (last 24h) and cost
   gateway start      Start the bot gateway
   gateway stop       Stop the gateway
@@ -855,9 +853,9 @@ ${b("Commands:")}
   version            Print current version (git tag)
   help               Show this help
 
-${b("Config:")}  ${getConfigPath()}
-${b("Workspace:")}  ${WORKSPACE_DIR}
-${b("Usage:")}  ${USAGE_FILE}
+${kleur.bold("Config:")}  ${getConfigPath()}
+${kleur.bold("Workspace:")}  ${WORKSPACE_DIR}
+${kleur.bold("Usage:")}  ${USAGE_FILE}
 `);
       break;
 

@@ -8,20 +8,15 @@ import { resolve } from "path";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { createInterface } from "readline";
 import TOML from "@iarna/toml";
+import kleur from "kleur";
 import type { OpoclawConfig } from "../src/config.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const BOLD = "\x1b[1m";
-const CYAN = "\x1b[36m";
-const GREEN = "\x1b[32m";
-const YELLOW = "\x1b[33m";
-const RESET = "\x1b[0m";
-
 const ask = (prompt: string): Promise<string> => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     return new Promise((resolve) => {
-        rl.question(`${CYAN}${prompt}${RESET}`, (answer) => {
+        rl.question(kleur.cyan(prompt), (answer) => {
             rl.close();
             resolve(answer.trim());
         });
@@ -34,10 +29,10 @@ const askMCQ = async <T extends string>(question: string, answers: T[], defaultA
     return (answers.find(a => a === lower) ?? defaultAnswer);
 };
 
-const info = (msg: string) => console.log(`${CYAN}[opoclaw]${RESET} ${msg}`);
-const ok = (msg: string) => console.log(`${GREEN}[✓]${RESET} ${msg}`);
+const info = (msg: string) => console.log(`${kleur.cyan("[opoclaw]")} ${msg}`);
+const ok = (msg: string) => console.log(`${kleur.green("[✓]")} ${msg}`);
 const header = (msg: string) =>
-    console.log(`\n${BOLD}═══ ${msg} ═══${RESET}\n`);
+    console.log(`\n${kleur.bold(`═══ ${msg} ═══`)}\n`);
 
 // ── Defaults ───────────────────────────────────────────────────────────────
 
@@ -162,7 +157,7 @@ async function main() {
 
     const discordToken = await ask("Discord bot token: ");
     if (!discordToken) {
-        console.error(`${YELLOW}Error: Discord token is required.${RESET}`);
+        console.error(kleur.yellow("Error: Discord token is required."));
         console.log("Create a bot at https://discord.com/developers/applications");
         process.exit(1);
     }
@@ -204,7 +199,7 @@ async function main() {
     } else {
         const openrouterKey = await ask("OpenRouter API key (sk-or-v1-...): ");
         if (!openrouterKey) {
-            console.error(`${YELLOW}Error: OpenRouter key is required.${RESET}`);
+            console.error(kleur.yellow("Error: OpenRouter key is required."));
             console.log("Get one at https://openrouter.ai/keys");
             process.exit(1);
         }
@@ -265,7 +260,7 @@ async function main() {
     if (useTavily) {
         tavilyApiKey = await ask("Tavily API key (tvly-...): ");
         if (!tavilyApiKey) {
-            console.log(`${YELLOW}No Tavily key provided — falling back to DuckDuckGo.${RESET}`);
+            console.log(kleur.yellow("No Tavily key provided — falling back to DuckDuckGo."));
         }
     }
 
@@ -336,7 +331,7 @@ async function main() {
 
     header("All done!");
 
-    console.log(`${GREEN}opoclaw is ready.${RESET}\n`);
+    console.log(`${kleur.green("opoclaw is ready.")}\n`);
     console.log("Next steps:");
     console.log(`  1. Review ${CONFIG_FILE}`);
     console.log(`  2. Fill in workspace/SOUL.md and workspace/IDENTITY.md`);
