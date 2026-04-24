@@ -479,12 +479,6 @@ async function semanticSearch(query: string, config: OpoclawConfig): Promise<str
     return results.map(r => `[${r.file}] ${r.line.trim()} (score: ${r.similarity.toFixed(3)})`);
 }
 
-// Track pending file sends (picked up by index.ts after tool execution)
-export let pendingFileSend: { path: string; caption: string } | null = null;
-
-export function clearPendingFileSend(): void {
-    pendingFileSend = null;
-}
 
 import { WasmShell } from "wasm-shell";
 const shell = new WasmShell();
@@ -616,6 +610,7 @@ export async function handleToolCall(
     name: string,
     args: Record<string, string>,
     config: OpoclawConfig,
+    setPendingFileSend?: (v: { path: string; caption: string } | null) => void,
 ): Promise<string> {
     console.log(`Handling tool call: ${name} with args ${JSON.stringify(args)}`);
     switch (name) {
@@ -642,7 +637,7 @@ export async function handleToolCall(
             // Validate file exists
             getFilePath(args.path, config.mounts);
             // Queue file for sending after response
-            pendingFileSend = { path: args.path, caption: args.caption || "" };
+            setPendingFileSend?.({ path: args.path, caption: args.caption || "" });
             return `File "${args.path}" queued for sending.`;
         }
         case "edit_config": {

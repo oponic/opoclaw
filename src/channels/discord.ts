@@ -19,7 +19,6 @@ import { unlink, readFile as readFileFs } from "fs/promises";
 import { readFileAsync } from "../workspace.ts";
 import { AgentSession, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
 import { getFilePath } from "../workspace.ts";
-import { pendingFileSend, clearPendingFileSend } from "../tools.ts";
 
 import { getSemanticSearchEnabled, getVisionEnabled, loadConfig, useTomlFiles, getActiveProvider } from "../config.ts";
 import { listSkills } from "../skills.ts";
@@ -871,11 +870,11 @@ export async function startDiscord(): Promise<void> {
 
                 if (i === 0) {
                     // Attach file to first message if pending
-                    if (pendingFileSend && !fileSent) {
+                    if (session.pendingFileSend && !fileSent) {
                         try {
-                            const filePath = getFilePath(pendingFileSend.path, config.mounts);
+                            const filePath = getFilePath(session.pendingFileSend.path, config.mounts);
                             const attachment = new AttachmentBuilder(filePath, {
-                                name: pendingFileSend.path.split("/").pop() || "file",
+                                name: session.pendingFileSend.path.split("/").pop() || "file",
                             });
                             const replyOpts: MessageReplyOptions = {
                                 content: content as string,
@@ -883,7 +882,7 @@ export async function startDiscord(): Promise<void> {
                             };
                             await msg.reply(replyOpts);
                             fileSent = true;
-                            clearPendingFileSend();
+                            session.pendingFileSend = null;
                         } catch (e: any) {
                             // File send failed, just send text
                             await msg.reply(content as string | MessagePayload | MessageReplyOptions);
@@ -899,20 +898,20 @@ export async function startDiscord(): Promise<void> {
             }
 
             // Send remaining file if not yet sent (e.g., no text response)
-            if (pendingFileSend && !fileSent) {
+            if (session.pendingFileSend && !fileSent) {
                 try {
-                    const filePath = getFilePath(pendingFileSend.path, config.mounts);
+                    const filePath = getFilePath(session.pendingFileSend.path, config.mounts);
                     const attachment = new AttachmentBuilder(filePath, {
-                        name: pendingFileSend.path.split("/").pop() || "file",
+                        name: session.pendingFileSend.path.split("/").pop() || "file",
                     });
                     if ("send" in msg.channel) {
                         await (msg.channel as any).send({
-                            content: pendingFileSend.caption || "",
+                            content: session.pendingFileSend.caption || "",
                             files: [attachment],
                         });
                     }
                 } catch { }
-                clearPendingFileSend();
+                session.pendingFileSend = null;
             }
 
         } catch (err: any) {

@@ -619,6 +619,7 @@ export interface AgentCallbacks {
 export class AgentSession {
     sessionId: string | undefined;
     messages: Message[];
+    pendingFileSend: { path: string; caption: string } | null = null;
 
     constructor(sessionId?: string) {
         this.sessionId = sessionId;
@@ -702,7 +703,7 @@ export class AgentSession {
                                 const deepResearchSessionId = this.sessionId ? `${this.sessionId}-deepresearch-${Date.now()}` : undefined;
                                 return await runDeepResearch(String(args.query || ""), config, callbacks.onDeepResearchSummary, deepResearchSessionId);
                             }
-                            return await handleToolCall(tc.function.name, args, config);
+                            return await handleToolCall(tc.function.name, args, config, v => { this.pendingFileSend = v; });
                         };
                         if (callbacks.requestToolApproval) {
                             const approval = await callbacks.requestToolApproval(tc, uniqueId);

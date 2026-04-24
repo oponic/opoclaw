@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile, readFile, mkdtemp, writeFile as writeFileFs, rm as rmFs } from "fs/promises";
 import { resolve, join } from "path";
 import { tmpdir } from "os";
-import { handleToolCall, pendingFileSend, clearPendingFileSend } from "../src/tools.ts";
+import { handleToolCall } from "../src/tools.ts";
 import { WORKSPACE_DIR } from "../src/workspace.ts";
 
 const TEST_DIR = resolve(WORKSPACE_DIR, "__tools_test__");
@@ -41,10 +41,18 @@ describe("tools", () => {
   test("send_file queues", async () => {
     await setup();
     const rel = "__tools_test__/a.txt";
-    const res = await handleToolCall("send_file", { path: rel }, {} as any);
+    let queued: { path: string; caption: string } | null = null;
+    const res = await handleToolCall("send_file", { path: rel }, {} as any, v => { queued = v; });
     expect(res).toContain("queued");
-    expect(pendingFileSend?.path).toBe(rel);
-    clearPendingFileSend();
+    expect(queued!.path).toBe(rel);
+    await cleanup();
+  });
+
+  test("send_file without setter callback does not throw", async () => {
+    await setup();
+    const rel = "__tools_test__/a.txt";
+    // Simulates the runDeepResearch call site which passes no setter
+    await expect(handleToolCall("send_file", { path: rel }, {} as any)).resolves.toContain("queued");
     await cleanup();
   });
 
