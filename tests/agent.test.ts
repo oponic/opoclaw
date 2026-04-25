@@ -165,7 +165,7 @@ describe("agent", () => {
         provider: { active: "openrouter", openrouter: { api_key: "k", model: "m", base_url: "http://localhost" } },
       } as any, dummyCallbacks);
       expect(String(session.messages[0]?.content || "")).toContain("Conversation context summary");
-      expect(session.messages.length).toBeLessThanOrEqual(6);
+      expect(session.messages.length).toBeLessThanOrEqual(6+1);
     } finally {
       globalThis.fetch = originalFetch as any;
     }

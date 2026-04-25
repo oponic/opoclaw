@@ -34,7 +34,7 @@ export const AGENT_TOOLS = {
                 const preserveRecent = Number.isFinite(preserveRecentRaw)
                     ? Math.max(2, Math.min(20, Math.round(preserveRecentRaw)))
                     : 6;
-                return session.compact(preserveRecent, config);
+                return await session.compact(preserveRecent, config);
             },
         },
     ),
