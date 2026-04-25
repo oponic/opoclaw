@@ -24,6 +24,10 @@ import { getVisionEnabled, loadConfig, getActiveProvider } from "../config.ts";
 import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";
 import { execSync } from "child_process";
 
+function exec(cmd: string, opts?: { cwd?: string }): string {
+  return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], ...opts }).trim();
+}
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -33,7 +37,7 @@ const client = new Client({
     ],
 });
 
-const version = exec("git describe --tags --abbrev=0 2>/dev/null || echo ''", { cwd: OP_DIR })
+const VERSION = exec("git describe --tags --abbrev=0 2>/dev/null || echo ''", { cwd: OP_DIR })
 
 const EYES = "👀";
 const THINKING = "🤔";
@@ -859,11 +863,12 @@ export async function startDiscord(): Promise<void> {
 ▛▌▛▌▛▌▛▘▐ ▀▌▌▌▌
 ▙▌▙▌▙▌▙▖▐▖█▌▚▚▘
   ▌
-\`\`\`
-Opoclaw v${VERSION}
+
+Opoclaw ${VERSION}
 Lightweight Bun AI agent framework
-[https://github.com/oponic/opoclaw](https://github.com/oponic/opoclaw)
+https://github.com/oponic/opoclaw
 Oponic + others, 2026
+\`\`\`
             `;
             await interaction.reply(about);
         }
