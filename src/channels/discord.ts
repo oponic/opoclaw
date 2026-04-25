@@ -20,7 +20,7 @@ import {
 import { AgentSession, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
 import { requiresToolApproval } from "../tools/index.ts";
 import { getFilePath } from "../workspace.ts";
-import { getVisionEnabled, loadConfig, getActiveProvider } from "../config.ts";
+import { getVisionEnabled, loadConfig, getActiveProvider, getModelId } from "../config.ts";
 import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";
 import { execSync } from "child_process";
 
@@ -842,7 +842,23 @@ export async function startDiscord(): Promise<void> {
                     body: [
                         {
                             name: "about",
-                            description: "About the bot",
+                            description: "About this bot",
+                        },
+                        {
+                            name: "info",
+                            description: "Show information on this claw",
+                            options: [
+                                {
+                                    name: "type",
+                                    type: 3,
+                                    description: "on what",
+                                    required: true,
+                                    choices: [
+                                        { name: "Model", value: "model" },
+                                        { name: "Provider", value: "provider" },
+                                    ],
+                                },
+                            ],
                         },
                     ],
                 },
@@ -870,6 +886,19 @@ Lightweight Bun AI agent framework
 -# oponic + others, 2026
             `;
             await interaction.reply(about);
+        }
+
+        if (interaction.commandName === "info") {
+            const type = interaction.options.getString("type");
+            const config = await loadConfig();
+            if (type === "model") {
+                const modelId = getModelId(config);
+                const provider = getActiveProvider(config);
+                await interaction.reply(`Model: **${modelId}** (${provider})`);
+            } else if (type === "provider") {
+                const provider = getActiveProvider(config);
+                await interaction.reply(`Provider: **${provider}**`);
+            }
         }
     });
 
