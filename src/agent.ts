@@ -1,4 +1,5 @@
 import { getTools, handleToolCall, type ToolContext } from "./tools/index.ts";
+import type { ToolSchema } from "./tools/types.ts";
 import { getApiBaseUrl, getApiKey, getModelId, getActiveProvider, type OpoclawConfig } from "./config.ts";
 import { dirname, join } from "path";
 import { mkdir } from "fs/promises";
@@ -501,6 +502,7 @@ function parseDeepResearchDocs(text: string): { title: string; content: string }
         }
     } catch {
     }
+    if (text === "(agent loop limit reached)") return [];
     const fallback = text.trim();
     if (!fallback) return [];
     return [{ title: "Research Summary", content: fallback }];
@@ -517,93 +519,40 @@ export async function runDeepResearch(
         "Synthesize 2-4 concise markdown documents. Output JSON: {\"docs\":[{\"title\":\"...\",\"content\":\"...\"}]} " +
         "Only output JSON, no markdown fences.";
 
-    const messages: Message[] = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: query },
-    ];
+    const session = new AgentSession(sessionId);
+    session.addMessage({ role: "user", content: query });
 
-    const searchBatch: ToolResult[] = [];
-    let searchCount = 0;
-    const MAX_MESSAGE_CHARS = 120000;
-    const MAX_TURNS = 40;
-    const MAX_TOOL_OUTPUT = 4000;
+    let searchBatch: ToolResult[] = [];
 
-    const totalChars = () =>
-        messages.reduce((sum, m) => {
-            const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content || "");
-            return sum + (c?.length || 0);
-        }, 0);
-
-    const trimMessages = () => {
-        while (messages.length > MAX_TURNS) {
-            messages.splice(1, 1);
-        }
-        while (totalChars() > MAX_MESSAGE_CHARS && messages.length > 2) {
-            messages.splice(1, 1);
-        }
-    };
-
-    for (let iteration = 0; iteration < 200; iteration++) {
-        trimMessages();
-        const result = await streamCompletion(messages, config, () => {}, undefined, sessionId);
-        const { text, toolCalls } = result;
-
-        if (toolCalls.length > 0) {
-            messages.push({ role: "assistant", content: text, tool_calls: toolCalls });
-            for (const tc of toolCalls) {
-                let output = "";
+    const result = await session.evaluate(systemPrompt, config, {
+        onFirstToken: () => {},
+        onToolCall: () => {},
+        onToolCallError: () => {},
+        onToolBatch: async (_calls, results) => {
+            if (!onSearchSummary) return;
+            const searchResults = results.filter(r => r.name === "search");
+            if (searchResults.length === 0) return;
+            searchBatch.push(...searchResults);
+            if (searchBatch.length >= 3) {
                 try {
-                    const args = JSON.parse(tc.function.arguments);
-                    output = await handleToolCall(tc.function.name, args, { config });
-                } catch (e: any) {
-                    output = `Error: ${e?.message || e}`;
-                }
-                if (output.length > MAX_TOOL_OUTPUT) {
-                    output = output.slice(0, MAX_TOOL_OUTPUT) + "…";
-                }
-
-                const toolResult: ToolResult = {
-                    name: tc.function.name,
-                    arguments: tc.function.arguments,
-                    output,
-                };
-
-                if (tc.function.name === "search") {
-                    searchBatch.push(toolResult);
-                    searchCount += 1;
-                    if (searchBatch.length >= 3 && onSearchSummary) {
-                        try {
-                            const summary = await summarizeToolBatch([], searchBatch, config, sessionId);
-                            const trimmed = summary.trim();
-                            if (trimmed) {
-                                await onSearchSummary(trimmed);
-                            }
-                        } catch {
-                        }
-                        searchBatch.length = 0;
-                    }
-                }
-
-                messages.push({
-                    role: "tool",
-                    tool_call_id: tc.id,
-                    name: tc.function.name,
-                    content: output,
-                });
+                    const summary = await summarizeToolBatch([], searchBatch, config, sessionId);
+                    if (summary.trim()) await onSearchSummary(summary.trim());
+                } catch {}
+                searchBatch = [];
             }
-            continue;
-        }
+        },
+    }, {
+        maxIterations: 200,
+        tools: getTools(config).filter(t => ["search", "web_fetch", "get_time"].includes(t.function.name)),
+    });
 
-        const docs = parseDeepResearchDocs(text || "");
-        if (docs.length === 0) return "Deep research completed, but no documents were produced.";
-
-        const compiled = docs
-            .map((d) => `# ${d.title}\n\n${d.content}`.trim())
-            .join("\n\n");
-        return `Deep Research Docs:\n\n${compiled}`;
+    const docs = parseDeepResearchDocs(result.text || "");
+    if (docs.length === 0) {
+        if (result.text === "(agent loop limit reached)") return "Deep research terminated (iteration limit reached).";
+        return "Deep research completed, but no documents were produced.";
     }
-
-    return "Deep research terminated (iteration limit reached).";
+    const compiled = docs.map(d => `# ${d.title}\n\n${d.content}`.trim()).join("\n\n");
+    return `Deep Research Docs:\n\n${compiled}`;
 }
 
 export interface AgentCallbacks {
@@ -755,10 +704,24 @@ export class AgentSession {
         }
     }
 
+    private trimContextByChars(): void {
+        while (this.messages.length > 40) this.messages.splice(0, 1);
+        let total = this.messages.reduce((s, m) => {
+            const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+            return s + c.length;
+        }, 0);
+        while (total > 120000 && this.messages.length > 1) {
+            const removed = this.messages.splice(0, 1)[0]!;
+            const c = typeof removed.content === "string" ? removed.content : JSON.stringify(removed.content ?? "");
+            total -= c.length;
+        }
+    }
+
     async evaluate(
         systemPrompt: string,
         config: OpoclawConfig,
-        callbacks: AgentCallbacks
+        callbacks: AgentCallbacks,
+        options?: { maxIterations?: number; tools?: ToolSchema[] }
     ): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
         const systemMessage: Message = { role: "system", content: systemPrompt };
 
@@ -771,15 +734,17 @@ export class AgentSession {
         };
 
         let didRunTools = false;
+        const maxIterations = options?.maxIterations ?? 20;
 
-        for (let iteration = 0; iteration < 20; iteration++) {
+        for (let iteration = 0; iteration < maxIterations; iteration++) {
+            this.trimContextByChars();
             this.injectBackgroundResultsIntoContext();
 
             const result = await streamCompletion(
                 [systemMessage, ...this.messages],
                 config,
                 wrappedOnFirstToken,
-                undefined,
+                options?.tools,
                 this.sessionId
             );
             const { text, toolCalls, usage } = result;
@@ -938,7 +903,7 @@ export class AgentSession {
                         if (callbacks.onToolCallError) {
                             callbacks.onToolCallError(uniqueId, e);
                         }
-                        toolResult = `Error: ${e.toString()}`;
+                        toolResult = `Error: ${e instanceof Error ? e.message : String(e)}`;
                     }
                     toolResults.push({
                         name: tc.function.name,
