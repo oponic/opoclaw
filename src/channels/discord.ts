@@ -15,7 +15,7 @@ import {
     StringSelectMenuBuilder,
 } from "discord.js";
 import { AgentSession, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
-import { requiresToolApproval } from "../tools.ts";
+import { requiresToolApproval } from "../tools/index.ts";
 import { getFilePath } from "../workspace.ts";
 import { getVisionEnabled, loadConfig, getActiveProvider } from "../config.ts";
 import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";

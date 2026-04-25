@@ -1,6 +1,6 @@
 import { AgentSession, type Message as AgentMessage, type ToolCall } from "../agent.ts";
 import { getModelId, getVisionEnabled, loadConfig, type OpoclawConfig } from "../config.ts";
-import { requiresToolApproval } from "../tools.ts";
+import { requiresToolApproval } from "../tools/index.ts";
 import { buildSystemPrompt } from "./shared.ts";
 
 type OpenAIContentPart =

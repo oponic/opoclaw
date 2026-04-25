@@ -5,7 +5,7 @@ import { startIRC } from "./irc.ts";
 import { startOpenAI } from "./openai.ts";
 import { AgentSession, summarizeToolBatch, type ToolCall } from "../agent.ts";
 import { loadConfig } from "../config.ts";
-import { requiresToolApproval } from "../tools.ts";
+import { requiresToolApproval } from "../tools/index.ts";
 import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";
 
 const LOCK_FILE = resolve(OP_DIR, ".gateway.lock");

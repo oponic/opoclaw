@@ -1,4 +1,4 @@
-import { getTools, handleToolCall, type ToolContext } from "./tools.ts";
+import { getTools, handleToolCall, type ToolContext } from "./tools/index.ts";
 import { getApiBaseUrl, getApiKey, getModelId, getActiveProvider, type OpoclawConfig } from "./config.ts";
 import { dirname, join } from "path";
 import { mkdir } from "fs/promises";

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile, readFile, mkdtemp, writeFile as writeFileFs, rm as rmFs } from "fs/promises";
 import { resolve, join } from "path";
 import { tmpdir } from "os";
-import { handleToolCall, type ToolContext } from "../src/tools.ts";
+import { handleToolCall, type ToolContext } from "../src/tools/index.ts";
 import { WORKSPACE_DIR } from "../src/workspace.ts";
 
 const DUMMY_TOOL_CONTEXT: ToolContext = { config: {} as any };
