@@ -854,8 +854,8 @@ export async function startDiscord(): Promise<void> {
                                     description: "on what",
                                     required: true,
                                     choices: [
-                                        { name: "Model", value: "model" },
-                                        { name: "Provider", value: "provider" },
+                                        { name: "model", value: "model" },
+                                        { name: "provider", value: "provider" },
                                     ],
                                 },
                             ],
@@ -894,10 +894,10 @@ Lightweight Bun AI agent framework
             if (type === "model") {
                 const modelId = getModelId(config);
                 const provider = getActiveProvider(config);
-                await interaction.reply(`Model: **${modelId}** (${provider})`);
+                await interaction.reply(`**${modelId}**`);
             } else if (type === "provider") {
                 const provider = getActiveProvider(config);
-                await interaction.reply(`Provider: **${provider}**`);
+                await interaction.reply(`**${provider}**`);
             }
         }
     });
