@@ -863,11 +863,12 @@ export async function startDiscord(): Promise<void> {
 ▛▌▛▌▛▌▛▘▐ ▀▌▌▌▌
 ▙▌▙▌▙▌▙▖▐▖█▌▚▚▘
   ▌
-\`\`\`
-Opoclaw v${VERSION}
+
+Opoclaw ${VERSION}
 Lightweight Bun AI agent framework
-[https://github.com/oponic/opoclaw](https://github.com/oponic/opoclaw)
+https://github.com/oponic/opoclaw
 Oponic + others, 2026
+\`\`\`
             `;
             await interaction.reply(about);
         }
