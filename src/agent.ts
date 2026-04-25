@@ -1,24 +1,11 @@
 import { getTools, handleToolCall, type ToolContext } from "./tools/index.ts";
 import type { ToolSchema } from "./tools/types.ts";
-import { getApiBaseUrl, getApiKey, getModelId, getActiveProvider, type OpoclawConfig } from "./config.ts";
+import { getActiveProvider, getModelId, type OpoclawConfig } from "./config.ts";
 import { recordUsage } from "./usage.ts";
+import { provider } from "./provider/index.ts";
+import type { Message, ToolCall } from "./provider/types.ts";
 
-interface Message {
-    role: "system" | "user" | "assistant" | "tool";
-    content: any | null;
-    tool_calls?: ToolCall[];
-    tool_call_id?: string;
-    name?: string;
-}
-
-export interface ToolCall {
-    id: string;
-    type: "function";
-    function: {
-        name: string;
-        arguments: string;
-    };
-}
+export type { ToolCall };
 
 interface ToolResult {
     name: string;
@@ -26,278 +13,15 @@ interface ToolResult {
     output: string;
 }
 
-
 function isAnthropicCustom(config: OpoclawConfig): boolean {
     return config.provider?.active === "custom" && config.provider?.custom?.api_type === "anthropic";
 }
 
-function buildAnthropicMessages(messages: Message[]): { system: string; messages: any[] } {
-    let system = "";
-    const out: any[] = [];
-
-    for (const m of messages) {
-        if (m.role === "system") {
-            if (typeof m.content === "string") {
-                system += (system ? "\n" : "") + m.content;
-            }
-            continue;
-        }
-
-        if (m.role === "tool") {
-            out.push({
-                role: "user",
-                content: [
-                    {
-                        type: "tool_result",
-                        tool_use_id: m.tool_call_id,
-                        content: m.content ?? "",
-                    },
-                ],
-            });
-            continue;
-        }
-
-        if (m.role === "assistant") {
-            const contentBlocks: any[] = [];
-            if (m.content) {
-                contentBlocks.push({ type: "text", text: m.content });
-            }
-            if (m.tool_calls && m.tool_calls.length > 0) {
-                for (const tc of m.tool_calls) {
-                    let input: any = {};
-                    try {
-                        input = JSON.parse(tc.function.arguments || "{}");
-                    } catch {
-                        input = {};
-                    }
-                    contentBlocks.push({
-                        type: "tool_use",
-                        id: tc.id,
-                        name: tc.function.name,
-                        input,
-                    });
-                }
-            }
-            out.push({ role: "assistant", content: contentBlocks });
-            continue;
-        }
-
-        if (m.role === "user") {
-            if (Array.isArray(m.content)) {
-                const blocks: any[] = [];
-                for (const part of m.content) {
-                    if (part?.type === "text") {
-                        blocks.push({ type: "text", text: part.text || "" });
-                    } else if (part?.type === "image_url" && part.image_url?.url) {
-                        blocks.push({ type: "image", source: { type: "url", url: part.image_url.url } });
-                    }
-                }
-                out.push({ role: "user", content: blocks.length ? blocks : [{ type: "text", text: "" }] });
-            } else {
-                out.push({
-                    role: "user",
-                    content: [{ type: "text", text: m.content ?? "" }],
-                });
-            }
-        }
-    }
-
-    return { system, messages: out };
-}
-
-
-async function streamCompletion(
-    messages: Message[],
-    config: OpoclawConfig,
-    onFirstToken: () => void,
-    toolsOverride?: any[],
-    sessionId?: string
-): Promise<{ text: string | null; toolCalls: ToolCall[]; usage: any; reasoning: string }> {
-    if (isAnthropicCustom(config)) {
-        const { system, messages: anthroMessages } = buildAnthropicMessages(messages);
-        const tools = (toolsOverride ?? getTools(config)).map((t: any) => ({
-            name: t.function.name,
-            description: t.function.description,
-            input_schema: t.function.parameters,
-        }));
-
-        const body: any = {
-            model: getModelId(config),
-            system,
-            messages: anthroMessages,
-            max_tokens: config.provider?.custom?.max_tokens ?? 1024,
-        };
-        if (tools.length > 0) {
-            body.tools = tools;
-            body.tool_choice = { type: "auto" };
-        }
-
-        const response = await fetch(`${getApiBaseUrl(config)}/v1/messages`, {
-            method: "POST",
-            headers: {
-                "x-api-key": getApiKey(config),
-                "anthropic-version": config.provider?.custom?.anthropic_version || "2023-06-01",
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(body),
-        });
-
-        if (!response.ok) {
-            const err = await response.text();
-            throw new Error(`Anthropic error ${response.status}: ${err}`);
-        }
-
-        const data: any = await response.json();
-        onFirstToken();
-
-        const toolCalls: ToolCall[] = [];
-        let textBuffer = "";
-        for (const block of data.content || []) {
-            if (block.type === "text") {
-                textBuffer += block.text || "";
-            } else if (block.type === "tool_use") {
-                toolCalls.push({
-                    id: block.id,
-                    type: "function",
-                    function: {
-                        name: block.name,
-                        arguments: JSON.stringify(block.input ?? {}),
-                    },
-                });
-            }
-        }
-
-        const usage = data.usage
-            ? {
-                  prompt_tokens: data.usage.input_tokens || 0,
-                  completion_tokens: data.usage.output_tokens || 0,
-              }
-            : null;
-
-        return { text: textBuffer || null, toolCalls, usage, reasoning: "" };
-    }
-
-    const body: any = {
-        model: getModelId(config),
-        messages,
-        tools: toolsOverride ?? getTools(config),
-        tool_choice: "auto",
-        stream: true,
-    };
-
-    // Add reasoning toggle (only supported by OpenRouter)
-    if (config.enable_reasoning && getActiveProvider(config) === "openrouter") {
-        body.reasoning = { enabled: true };
-    }
-
-    const response = await fetch(`${getApiBaseUrl(config)}/v1/chat/completions`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${getApiKey(config)}`,
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            ...body,
-            ...(sessionId != undefined ? { session_id: sessionId } : {})
-        }),
-    });
-
-    if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`OpenRouter error ${response.status}: ${err}`);
-    }
-
-    const reader = response.body!.getReader();
-    const decoder = new TextDecoder();
-
-    let textBuffer = "";
-    let firstToken = false;
-    const toolCallMap: Record<number, { id: string; name: string; arguments: string }> = {};
-    let finishReason: string | null = null;
-    let usage: any = null;
-    let reasoningBuffer = "";
-    let sseBuffer = "";
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        sseBuffer += decoder.decode(value, { stream: true });
-        const lines = sseBuffer.split("\n");
-        sseBuffer = lines.pop() || "";
-
-        for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") { finishReason = finishReason ?? "stop"; continue; }
-
-            let parsed: any;
-            try {
-                parsed = JSON.parse(data);
-            } catch (e) {
-                continue;
-            }
-
-            const choice = parsed.choices?.[0];
-            if (!choice) continue;
-
-            finishReason = choice.finish_reason ?? finishReason;
-
-            // Capture usage from the chunk (OpenRouter sends it per-stream)
-            if (parsed.usage) {
-                usage = parsed.usage;
-            }
-
-            const delta = choice.delta;
-            if (!delta) continue;
-
-            const reasoningDelta = (delta as any).reasoning;
-            if (reasoningDelta) {
-                if (typeof reasoningDelta === "string") {
-                    reasoningBuffer += reasoningDelta;
-                } else if (reasoningDelta.content) {
-                    reasoningBuffer += reasoningDelta.content;
-                }
-                if (!firstToken) {
-                    firstToken = true;
-                    onFirstToken();
-                }
-            }
-
-            if (delta.content) {
-                if (!firstToken) {
-                    firstToken = true;
-                    onFirstToken();
-                }
-                textBuffer += delta.content;
-            }
-
-            if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                    const idx: number = tc.index ?? 0;
-                    if (!toolCallMap[idx]) {
-                        toolCallMap[idx] = { id: tc.id ?? "", name: "", arguments: "" };
-                    }
-                    if (tc.id) toolCallMap[idx].id = tc.id;
-                    if (tc.function?.name) toolCallMap[idx].name += tc.function.name;
-                    if (tc.function?.arguments) toolCallMap[idx].arguments += tc.function.arguments;
-                }
-
-                if (!firstToken) {
-                    firstToken = true;
-                    onFirstToken();
-                }
-            }
-        }
-    }
-
-    const toolCalls: ToolCall[] = Object.entries(toolCallMap).map(([, tc]) => ({
-        id: tc.id,
-        type: "function",
-        function: { name: tc.name, arguments: tc.arguments },
-    }));
-
-    return { text: textBuffer || null, toolCalls, usage, reasoning: reasoningBuffer };
+function configWithModel(config: OpoclawConfig, model: string): OpoclawConfig {
+    const active = getActiveProvider(config);
+    if (active === "openrouter") return { ...config, provider: { ...config.provider, openrouter: { ...config.provider?.openrouter, model } } };
+    if (active === "ollama") return { ...config, provider: { ...config.provider, ollama: { ...config.provider?.ollama, model } } };
+    return { ...config, provider: { ...config.provider, custom: { ...config.provider?.custom, model } } };
 }
 
 async function generateReasoningSummary(
@@ -305,38 +29,17 @@ async function generateReasoningSummary(
     config: OpoclawConfig,
     sessionId?: string
 ): Promise<string> {
-    if (isAnthropicCustom(config)) {
-        return "(no summary)";
-    }
+    if (isAnthropicCustom(config)) return "(no summary)";
+
     const model = config.reasoning_summary_model || getModelId(config);
-    const response = await fetch(`${getApiBaseUrl(config)}/v1/chat/completions`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${getApiKey(config)}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            model,
-            messages: [
-                {
-                    role: "user",
-                    content: `Summarize this reasoning in one short sentence (no markdown, just plain text):\n\n${reasoningText.slice(0, 3000)}`
-                },
-            ],
-            stream: false,
-            max_tokens: 500,
-            ...(sessionId != undefined ? {session_id: sessionId}:{})
-        }),
-    });
-
-    if (!response.ok) {
-        const errText = await response.text().catch(() => "");
-        console.log(`[summary] API error ${response.status}: ${errText.slice(0, 200)}`);
-        return "(reasoning summary failed)";
-    }
-
-    const data: any = await response.json();
-    return data.choices?.[0]?.message?.content?.trim() || "(no summary)";
+    const result = await provider.generateCompletion(
+        [{ role: "user", content: `Summarize this reasoning in one short sentence (no markdown, just plain text):\n\n${reasoningText.slice(0, 3000)}` }],
+        configWithModel(config, model),
+        () => {},
+        [],
+        sessionId,
+    );
+    return result.text?.trim() || "(no summary)";
 }
 
 export async function summarizeToolBatch(
@@ -352,55 +55,11 @@ export async function summarizeToolBatch(
     }));
     const prompt = `Write one short, high-level sentence summarizing what was accomplished. It should mention the objective or outcome, not the tools or files used. No markdown, no bullet points.\n\n${JSON.stringify(summaryInput, null, 2)}`;
 
-    if (isAnthropicCustom(config)) {
-        const response = await fetch(`${getApiBaseUrl(config)}/v1/messages`, {
-            method: "POST",
-            headers: {
-                "x-api-key": getApiKey(config),
-                "anthropic-version": config.provider?.custom?.anthropic_version || "2023-06-01",
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                model: getModelId(config),
-                system: "You summarize actions at a high level without mentioning tools or files. Output exactly one short sentence.",
-                messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
-                max_tokens: 200,
-            }),
-        });
-        if (!response.ok) {
-            const errText = await response.text().catch(() => "");
-            throw new Error(`Summary API error ${response.status}: ${errText.slice(0, 200)}`);
-        }
-        const data: any = await response.json();
-        const text = data?.content?.map((b: any) => b?.text).filter(Boolean).join("") || "";
-        return text.trim();
-    }
+    const systemMsg: Message = { role: "system", content: "You summarize actions at a high level without mentioning tools or files. Output exactly one short sentence." };
+    const userMsg: Message = { role: "user", content: prompt };
 
-    const response = await fetch(`${getApiBaseUrl(config)}/v1/chat/completions`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${getApiKey(config)}`,
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            model: getModelId(config),
-            messages: [
-                { role: "system", content: "You summarize actions at a high level without mentioning tools or files. Output exactly one short sentence." },
-                { role: "user", content: prompt },
-            ],
-            stream: false,
-            max_tokens: 200,
-            ...(sessionId != undefined ? { session_id: sessionId } : {})
-        }),
-    });
-
-    if (!response.ok) {
-        const errText = await response.text().catch(() => "");
-        throw new Error(`Summary API error ${response.status}: ${errText.slice(0, 200)}`);
-    }
-
-    const data: any = await response.json();
-    return data.choices?.[0]?.message?.content?.trim() || "";
+    const result = await provider.generateCompletion([systemMsg, userMsg], config, () => {}, [], sessionId);
+    return result.text?.trim() || "";
 }
 
 function parseDeepResearchDocs(text: string): { title: string; content: string }[] {
@@ -478,7 +137,7 @@ export interface AgentCallbacks {
     requestToolApproval?: (call: ToolCall, uniqueId: string) => Promise<{ approved: boolean; message?: string }>,
     onToolBatch?: (calls: ToolCall[], results: ToolResult[], sessionId?: string) => Promise<void>,
     onDeepResearchSummary?: (summary: string) => Promise<void>,
-    executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>   
+    executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>
 }
 
 export type BackgroundSubagentJob = {
@@ -580,7 +239,7 @@ export class AgentSession {
         const subSessionId = this.sessionId
             ? `${this.sessionId}-subagent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
             : undefined;
-        const result = await streamCompletion(subagentMessages, config, () => {}, [], subSessionId);
+        const result = await provider.generateCompletion(subagentMessages, config, () => {}, [], subSessionId);
         if (result.usage) {
             await recordUsage(result.usage, getModelId(config));
         }
@@ -615,8 +274,6 @@ export class AgentSession {
         if (!Array.from(this.backgroundJobs.values()).some((job) => job.status === "running" && !job.injected)) {
             return;
         }
-        // Yield several times to allow microtasks and some macrotasks (I/O) to finish
-        // for background jobs that are expected to be nearly immediate.
         for (let i = 0; i < 5; i++) {
             await new Promise((resolve) => setTimeout(resolve, 0));
             if (!Array.from(this.backgroundJobs.values()).some((job) => job.status === "running" && !job.injected)) {
@@ -696,7 +353,7 @@ export class AgentSession {
             this.trimContextByChars();
             this.injectBackgroundResultsIntoContext();
 
-            const result = await streamCompletion(
+            const result = await provider.generateCompletion(
                 [systemMessage, ...this.messages],
                 config,
                 wrappedOnFirstToken,
@@ -771,8 +428,6 @@ export class AgentSession {
                     await callbacks.onToolBatch(toolCalls, toolResults, this.sessionId);
                 }
 
-                // Let background subagent jobs settle so completed results can be
-                // injected before the next model turn without hard-blocking.
                 await this.yieldForBackgroundJobs();
                 this.injectBackgroundResultsIntoContext();
                 continue;
@@ -791,7 +446,6 @@ export class AgentSession {
 
             this.messages.push({ role: "assistant", content: responseText });
 
-            // Final check for background results that might have finished during the last turn
             this.injectBackgroundResultsIntoContext();
 
             return { text: responseText, reasoningSummary: reasoningSummaryText, ranTools: didRunTools };

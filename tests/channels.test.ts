@@ -6,6 +6,7 @@ import { handleCoreRequest } from "../src/channels/core.ts";
 import { startDiscord } from "../src/channels/discord.ts";
 import { startIRC } from "../src/channels/irc.ts";
 import { handleOpenAIRequest, startOpenAI } from "../src/channels/openai.ts";
+import { provider } from "../src/provider/index.ts";
 
 async function withTempConfig(contents: string, fn: () => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "opoclaw-config-"));
@@ -58,12 +59,8 @@ describe("channels", () => {
 
   test("core chat endpoint returns assistant response", async () => {
     const cfg = `\n[channel.discord]\nenabled = false\n[channel.irc]\nenabled = false\n[channel.openai]\nenabled = false\n\n[provider]\nactive = "openrouter"\n\n[provider.openrouter]\napi_key = "k"\nmodel = "m"\nbase_url = "http://localhost"\n`;
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => {
-      const payload = `data: ${JSON.stringify({ choices: [{ delta: { content: "Core says hi" }, finish_reason: null }], usage: { prompt_tokens: 1, completion_tokens: 1 } })}\n\n` +
-        "data: [DONE]\n\n";
-      return new Response(payload, { status: 200 });
-    }) as any;
+    const original = provider.generateCompletion;
+    provider.generateCompletion = async () => ({ text: "Core says hi", toolCalls: [], usage: { prompt_tokens: 1, completion_tokens: 1 }, reasoning: "" });
 
     await withTempConfig(cfg, async () => {
       try {
@@ -77,7 +74,7 @@ describe("channels", () => {
         expect(data.ok).toBe(true);
         expect(data.text).toBe("Core says hi");
       } finally {
-        globalThis.fetch = originalFetch as any;
+        provider.generateCompletion = original;
       }
     });
   });
@@ -99,12 +96,8 @@ describe("channels", () => {
 
   test("openai chat completions returns assistant text", async () => {
     const cfg = `\n[channel.openai]\nenabled = true\n\n[provider]\nactive = "openrouter"\n\n[provider.openrouter]\napi_key = "k"\nmodel = "m"\nbase_url = "http://localhost"\n`;
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => {
-      const payload = `data: ${JSON.stringify({ choices: [{ delta: { content: "Hello from API" }, finish_reason: null }], usage: { prompt_tokens: 1, completion_tokens: 1 } })}\n\n` +
-        "data: [DONE]\n\n";
-      return new Response(payload, { status: 200 });
-    }) as any;
+    const original = provider.generateCompletion;
+    provider.generateCompletion = async () => ({ text: "Hello from API", toolCalls: [], usage: { prompt_tokens: 1, completion_tokens: 1 }, reasoning: "" });
 
     await withTempConfig(cfg, async () => {
       try {
@@ -120,7 +113,7 @@ describe("channels", () => {
         expect(res.status).toBe(200);
         expect(data.choices[0].message.content).toBe("Hello from API");
       } finally {
-        globalThis.fetch = originalFetch as any;
+        provider.generateCompletion = original;
       }
     });
   });
