@@ -34,7 +34,7 @@ export async function generateCompletion(
         }
     }
 
-    const data: any = await client.chat.completions.create(requestParams);
+    const data = await client.chat.completions.create(requestParams);
     onFirstToken();
 
     const message = data.choices?.[0]?.message;
@@ -54,5 +54,6 @@ export async function generateCompletion(
         toolCalls,
         usage: data.usage ?? null,
         reasoning,
+        reasoning_details: (message as any).reasoning_details ?? null
     };
 }

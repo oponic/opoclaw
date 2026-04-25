@@ -6,6 +6,7 @@ export interface Message {
     tool_calls?: ToolCall[];
     tool_call_id?: string;
     name?: string;
+    reasoning_details?: Record<string,string>[];
 }
 
 export interface ToolCall {
@@ -22,6 +23,7 @@ export interface CompletionResult {
     toolCalls: ToolCall[];
     usage: any;
     reasoning: string;
+    reasoning_details: Record<string,string>[];
 }
 
 export type ProviderFn = (

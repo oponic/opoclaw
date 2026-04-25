@@ -360,7 +360,7 @@ export class AgentSession {
                 options?.tools,
                 this.sessionId
             );
-            const { text, toolCalls, usage } = result;
+            const { text, toolCalls, usage, reasoning_details } = result;
 
             if (usage) {
                 await recordUsage(usage, getModelId(config));
@@ -372,6 +372,7 @@ export class AgentSession {
                     role: "assistant",
                     content: text,
                     tool_calls: toolCalls,
+                    ...(reasoning_details ? {reasoning_details} : {})
                 });
 
                 const toolResults: ToolResult[] = [];
