@@ -13,12 +13,16 @@ import {
     EmbedBuilder,
     ComponentType,
     StringSelectMenuBuilder,
+    REST,
+    Routes,
+    type ChatInputCommandInteraction,
 } from "discord.js";
 import { AgentSession, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
 import { requiresToolApproval } from "../tools/index.ts";
 import { getFilePath } from "../workspace.ts";
 import { getVisionEnabled, loadConfig, getActiveProvider } from "../config.ts";
 import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";
+import { execSync } from "child_process";
 
 const client = new Client({
     intents: [
@@ -28,6 +32,8 @@ const client = new Client({
         GatewayIntentBits.GuildMessageReactions,
     ],
 });
+
+const version = exec("git describe --tags --abbrev=0 2>/dev/null || echo ''", { cwd: OP_DIR })
 
 const EYES = "👀";
 const THINKING = "🤔";
@@ -821,8 +827,46 @@ export async function startDiscord(): Promise<void> {
         return chunks;
     }
 
-    client.once(Events.ClientReady, (c) => {
+    client.once(Events.ClientReady, async (c) => {
         console.log(`Logged in as ${c.user.tag}`);
+
+        const rest = new REST({ version: "10" }).setToken(discordCfg.token!);
+        try {
+            await rest.put(
+                Routes.applicationCommands(client.user!.id),
+                {
+                    body: [
+                        {
+                            name: "about",
+                            description: "About the bot",
+                        },
+                    ],
+                },
+            );
+            console.log("[gateway] Registered slash commands");
+        } catch (e) {
+            console.error("[gateway] Failed to register slash commands:", e);
+        }
+    });
+
+    client.on(Events.InteractionCreate, async (interaction) => {
+        if (!interaction.isChatInputCommand()) return;
+
+        if (interaction.commandName === "about") {
+            const about = `
+\`\`\`
+        ▜
+▛▌▛▌▛▌▛▘▐ ▀▌▌▌▌
+▙▌▙▌▙▌▙▖▐▖█▌▚▚▘
+  ▌
+\`\`\`
+Opoclaw v${VERSION}
+Lightweight Bun AI agent framework
+[https://github.com/oponic/opoclaw](https://github.com/oponic/opoclaw)
+Oponic + others, 2026
+            `;
+            await interaction.reply(about);
+        }
     });
 
     if (!discordCfg?.token) {
