@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchResult } from "./base.ts";
+import type { SearchProvider, SearchResult } from "./types.ts";
 
 function decodeHtmlEntities(input: string): string {
     return input

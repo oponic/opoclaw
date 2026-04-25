@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchResult } from "./base.ts";
+import type { SearchProvider, SearchResult } from "./types.ts";
 
 export class TavilySearch implements SearchProvider {
     name = "tavily";
