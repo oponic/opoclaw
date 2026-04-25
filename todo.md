@@ -8,7 +8,7 @@
 - [x] `compact` tool
 - [x] `run_subagent` tool
 - [x] `run_background_subagent` tool
-- [ ] reply awareness
+- [x] reply awareness
 - [ ] thread creation
 - [ ] shell passthrough
 - [x] tui for direct communication
