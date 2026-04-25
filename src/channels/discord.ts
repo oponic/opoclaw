@@ -14,15 +14,11 @@ import {
     ComponentType,
     StringSelectMenuBuilder,
 } from "discord.js";
-import { resolve } from "path";
-import { unlink, readFile as readFileFs } from "fs/promises";
-import { readFileAsync } from "../workspace.ts";
 import { AgentSession, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../agent.ts";
 import { requiresToolApproval } from "../tools.ts";
 import { getFilePath } from "../workspace.ts";
-
-import { getSemanticSearchEnabled, getVisionEnabled, loadConfig, useTomlFiles, getActiveProvider } from "../config.ts";
-import { listSkills } from "../skills.ts";
+import { getVisionEnabled, loadConfig, getActiveProvider } from "../config.ts";
+import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";
 
 const client = new Client({
     intents: [
@@ -38,9 +34,6 @@ const THINKING = "🤔";
 const TOOL = "🔧";
 const APPROVAL_TIMEOUT_MS = 60_000;
 const UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000;
-const OP_DIR = resolve(import.meta.dir, "../..");
-const HIBERNATE_FILE = resolve(OP_DIR, ".gateway.hibernate");
-const SYSTEM_PROMPT_FILE = resolve(import.meta.dir, "../SYSTEM.md");
 const dec = new TextDecoder();
 let lastUpdateCheck = 0;
 let cachedUpdateTag: string | null = null;
@@ -167,60 +160,12 @@ function pickLatestTag(tags: string[], channel: "stable" | "unstable", currentTa
     return null;
 }
 
-async function loadSystemPromptBase(): Promise<string> {
-    try {
-        return await readFileFs(SYSTEM_PROMPT_FILE, "utf-8");
-    } catch {
-        return "";
-    }
-}
-
-function renderSystemPrompt(template: string): string {
-    const now = new Date();
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    const date = now.toLocaleDateString("en-US", {
-        timeZone: tz,
-        year: "numeric",
-        month: "long",
-        day: "2-digit",
-    });
-    const time = now.toLocaleTimeString("en-US", {
-        timeZone: tz,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-    });
-    return template
-        .replaceAll("{{DATE}}", date)
-        .replaceAll("{{TIME}}", time)
-        .replaceAll("{{TIMEZONE}}", tz);
-}
-
 function formatMentions(text: string, msg: Message): string {
     return text.replace(/<@!?(\d+)>/g, (_full, id) => {
         const user = msg.mentions.users.get(id);
         const name = user?.username || `user_${id}`;
         return `@${name}`;
     });
-}
-
-async function isHibernating(): Promise<boolean> {
-    try {
-        return await Bun.file(HIBERNATE_FILE).exists();
-    } catch {
-        return false;
-    }
-}
-
-async function setHibernating(on: boolean): Promise<void> {
-    if (on) {
-        await Bun.write(HIBERNATE_FILE, new Date().toISOString());
-    } else {
-        try {
-            await unlink(HIBERNATE_FILE);
-        } catch {
-        }
-    }
 }
 
 async function removeReaction(msg: Message, emoji: string): Promise<void> {
@@ -236,6 +181,34 @@ async function addReaction(msg: Message, emoji: string): Promise<void> {
         await msg.react(emoji);
     } catch {
     }
+}
+
+async function awaitButtonApproval(prompt: Message, authorizedUserId: string): Promise<boolean> {
+    let approved = false;
+    const expiresAt = Date.now() + APPROVAL_TIMEOUT_MS;
+    while (Date.now() < expiresAt) {
+        const remaining = expiresAt - Date.now();
+        try {
+            const interaction = await prompt.awaitMessageComponent({
+                componentType: ComponentType.Button,
+                time: remaining,
+            });
+            if (interaction.user.id !== authorizedUserId) {
+                await interaction.reply({
+                    content: "You are not authorized to approve this action.",
+                    ephemeral: true,
+                });
+                continue;
+            }
+            approved = interaction.customId.endsWith(":yes");
+            await interaction.deferUpdate();
+            break;
+        } catch {
+            approved = false;
+            break;
+        }
+    }
+    return approved;
 }
 
 function formatDiscordMessage(m: Message, imageAttachments?: { url: string }[]): ChatMessage | null {
@@ -353,30 +326,7 @@ export async function startDiscord(): Promise<void> {
             );
             const prompt = await channel.send({ embeds: [embed], components: [row] });
 
-            let approved = false;
-            const expiresAt = Date.now() + APPROVAL_TIMEOUT_MS;
-            while (Date.now() < expiresAt) {
-                const remaining = expiresAt - Date.now();
-                try {
-                    const interaction = await prompt.awaitMessageComponent({
-                        componentType: ComponentType.Button,
-                        time: remaining,
-                    });
-                    if (interaction.user.id !== authorizedUserId) {
-                        await interaction.reply({
-                            content: "You are not authorized to approve this action.",
-                            ephemeral: true,
-                        });
-                        continue;
-                    }
-                    approved = interaction.customId.endsWith(":yes");
-                    await interaction.deferUpdate();
-                    break;
-                } catch {
-                    approved = false;
-                    break;
-                }
-            }
+            const approved = await awaitButtonApproval(prompt, authorizedUserId);
 
             const finalEmbed = EmbedBuilder.from(embed)
                 .setColor(0x242429)
@@ -390,40 +340,12 @@ export async function startDiscord(): Promise<void> {
 
         await addReaction(msg, EYES);
 
-        const useToml = useTomlFiles(config);
-
-        const [systemBase, agentsContent, soulContent, identityContent, memoryContent, skills] = await Promise.all([
-            loadSystemPromptBase(),
-            readFileAsync(useToml ? 'agents.toml' : 'AGENTS.md').catch(() => ""),
-            readFileAsync(useToml ? 'soul.toml' : 'SOUL.md').catch(() => ""),
-            readFileAsync(useToml ? 'identity.toml' : 'IDENTITY.md').catch(() => ""),
-            readFileAsync(useToml ? 'memory.toml' : 'MEMORY.md').catch(() => ""),
-            listSkills(),
-        ]);
-
-        const systemPromptParts: string[] = [];
-        if (systemBase) systemPromptParts.push(renderSystemPrompt(systemBase));
-        if (soulContent) systemPromptParts.push(soulContent);
-        if (identityContent) systemPromptParts.push("\n## Your Identity\nThis is your " + (useToml ? "identity.toml" : "IDENTITY.md") + ".\n```\n" + identityContent + "\n```");
-        if (agentsContent) systemPromptParts.push("\n## Operating Instructions\n" + agentsContent);
-        if (memoryContent) systemPromptParts.push("\n## Memory\nThis is your " + (useToml ? "memory.toml" : "MEMORY.md") + ". You can edit that file, but be careful not to accidentally erase information in it.\n```\n" + memoryContent + "\n```");
-        if (getSemanticSearchEnabled(config)) {
-            systemPromptParts.push("\n## Semantic Search\nYou have access to a semantic search command in your shell. Use `semantic-search <query>` and it'll return lines in any file that match embeddings. You don't need to worry about gaming this, remember it's semantic and not keyword based, so even just a description of what you're looking for can work. The command caches efficiently as well.\nThis is the recommended way to search through your memory. You can do multiple searches at once using normal shell syntax like semicolons: `semantic-search <query1>; semantic-search <query2>`");
-        }
-        if (skills.length > 0) {
-            systemPromptParts.push(
-                `\n## Skills\nAvailable skills: ${skills.map((s) => `\`${s}\``).join(", ")}\nTo use a skill, call the use_skill tool with the skill name. It will return the skill's SKILL.md instructions before you apply them.`
-            );
-        }
-        systemPromptParts.push(
-            `\n## Discord Context\nChannel ID: ${msg.channel.id}\nMessage IDs appear as \`[id:...]\` in history entries. Reactions are shown at the end like \`(reactions: 😄×2)\`. Use the \`react_message\` tool with \`channel_id\` and \`message_id\` to react.\nNever include \`[id:...]\` in your replies; IDs are only for tool calls.`
-        );
-        if (useToml) {
-            systemPromptParts.push("\n## TOML Editing\nIn your shell, you have a convenient CLI for easy editing. You can use `toml <file> <key> push <value>` to push a value to a key, or `toml <file> <key> remove <value>` to remove a value. If the key or file doesn't exist, it will be created for you.\nThis is the primary way you should be managing memory. You can for example use `toml memory.toml notes push \"<something you want to remember>\"` to add a note to your memory, which will persist across sessions.");
-        }
+        const extraSections = [
+            `\n## Discord Context\nChannel ID: ${msg.channel.id}\nMessage IDs appear as \`[id:...]\` in history entries. Reactions are shown at the end like \`(reactions: 😄×2)\`. Use the \`react_message\` tool with \`channel_id\` and \`message_id\` to react.\nNever include \`[id:...]\` in your replies; IDs are only for tool calls.`,
+        ];
         const pollSummary = getPollSummary(msg.channel.id);
-        if (pollSummary) systemPromptParts.push(pollSummary);
-        const systemPrompt = systemPromptParts.join("\n") || "You are a helpful assistant.";
+        if (pollSummary) extraSections.push(pollSummary);
+        const systemPrompt = await buildSystemPrompt(config, extraSections);
         const visionEnabled = getVisionEnabled(config);
         const imageAttachments = visionEnabled
             ? Array.from(msg.attachments.values()).filter((a) => (a.contentType || "").startsWith("image/"))
@@ -561,30 +483,7 @@ export async function startDiscord(): Promise<void> {
 
             const prompt = await channel.send({ embeds: [embed], components: [row] });
 
-            let approved = false;
-            const expiresAt = Date.now() + APPROVAL_TIMEOUT_MS;
-            while (Date.now() < expiresAt) {
-                const remaining = expiresAt - Date.now();
-                try {
-                    const interaction = await prompt.awaitMessageComponent({
-                        componentType: ComponentType.Button,
-                        time: remaining,
-                    });
-                    if (interaction.user.id !== authorizedUserId) {
-                        await interaction.reply({
-                            content: "You are not authorized to approve this action.",
-                            ephemeral: true,
-                        });
-                        continue;
-                    }
-                    approved = interaction.customId.endsWith(":yes");
-                    await interaction.deferUpdate();
-                    break;
-                } catch {
-                    approved = false;
-                    break;
-                }
-            }
+            const approved = await awaitButtonApproval(prompt, authorizedUserId);
 
             const finalEmbed = EmbedBuilder.from(embed)
                 .setColor(0x242429)
@@ -634,30 +533,7 @@ export async function startDiscord(): Promise<void> {
                 );
                 const prompt = await channel.send({ embeds: [embed], components: [row] });
 
-                let approved = false;
-                const expiresAt = Date.now() + APPROVAL_TIMEOUT_MS;
-                while (Date.now() < expiresAt) {
-                    const remaining = expiresAt - Date.now();
-                    try {
-                        const interaction = await prompt.awaitMessageComponent({
-                            componentType: ComponentType.Button,
-                            time: remaining,
-                        });
-                        if (interaction.user.id !== authorizedUserId) {
-                            await interaction.reply({
-                                content: "You are not authorized to approve this action.",
-                                ephemeral: true,
-                            });
-                            continue;
-                        }
-                        approved = interaction.customId.endsWith(":yes");
-                        await interaction.deferUpdate();
-                        break;
-                    } catch {
-                        approved = false;
-                        break;
-                    }
-                }
+                const approved = await awaitButtonApproval(prompt, authorizedUserId);
 
                 const finalEmbed = EmbedBuilder.from(embed)
                     .setColor(0x242429)
