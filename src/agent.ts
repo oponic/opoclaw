@@ -534,22 +534,7 @@ export class AgentSession {
 
     addMessage(msg: Message): void {
         this.messages.push(msg);
-        const userCount = this.messages.filter(m => m.role === "user").length;
-        if (userCount > 50) {
-            const toDrop = userCount - 40;
-            let dropped = 0;
-            let cutIndex = 0;
-            for (let i = 0; i < this.messages.length; i++) {
-                if (this.messages[i]!.role === "user") {
-                    dropped++;
-                    if (dropped === toDrop) {
-                        cutIndex = i + 1;
-                        break;
-                    }
-                }
-            }
-            this.messages.splice(0, cutIndex);
-        }
+        this.trimContextByChars();
     }
 
     serializeMessagesForPrompt(messages: Message[]): string {
@@ -651,15 +636,44 @@ export class AgentSession {
     }
 
     private trimContextByChars(): void {
-        while (this.messages.length > 40) this.messages.splice(0, 1);
-        let total = this.messages.reduce((s, m) => {
+        const msgLen = (m: Message): number => {
             const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
-            return s + c.length;
-        }, 0);
-        while (total > 120000 && this.messages.length > 1) {
-            const removed = this.messages.splice(0, 1)[0]!;
-            const c = typeof removed.content === "string" ? removed.content : JSON.stringify(removed.content ?? "");
-            total -= c.length;
+            return c.length;
+        };
+
+        const userCount = this.messages.filter(m => m.role === "user").length;
+        if (userCount > 50) {
+            const toDrop = userCount - 39;
+            let dropped = 0;
+            let cutIndex = 0;
+            for (let i = 0; i < this.messages.length; i++) {
+                if (this.messages[i]!.role === "user") {
+                    dropped++;
+                    if (dropped === toDrop) { cutIndex = i + 1; break; }
+                }
+            }
+            this.messages.splice(0, cutIndex);
+        }
+
+        let distFromEnd = -1;
+        for (let i = this.messages.length - 1; i >= 0; i--) {
+            if (this.messages[i]!.role === "user") { distFromEnd = this.messages.length - 1 - i; break; }
+        }
+        const minSafeLength = distFromEnd + 1;
+
+        if (this.messages.length > 60) {
+            const toRemove = this.messages.length - Math.max(60, minSafeLength);
+            if (toRemove > 0) this.messages.splice(0, toRemove);
+        }
+
+        let total = this.messages.reduce((s, m) => s + msgLen(m), 0);
+        while (total > 100000 && this.messages.length > minSafeLength) {
+            total -= msgLen(this.messages[0]!);
+            this.messages.splice(0, 1);
+        }
+
+        while (this.messages.length > 0 && this.messages[0]!.role !== "user") {
+            this.messages.splice(0, 1);
         }
     }
 
