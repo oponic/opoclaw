@@ -54,7 +54,7 @@ const chip = (s: string, tone: ChipTone = "magenta") => {
     case "yellow": return kleur.bgYellow().black().bold(text);
     case "red": return kleur.bgRed().white().bold(text);
     case "cyan": return kleur.bgCyan().black().bold(text);
-    default: return kleur.bgMagenta().black().bold(text);
+    default: return kleur.bgMagenta().white().bold(text);
   }
 };
 const okChip = (s: string) => kleur.bgGreen().black().bold(` ${s} `);
