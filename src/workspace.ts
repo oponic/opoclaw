@@ -42,15 +42,7 @@ function safePath(relativePath: string, mounts?: Record<string, string>): string
   return resolveMountPath(relativePath, mounts).abs;
 }
 
-export function readFile(relativePath: string, mounts?: Record<string, string>): string {
-  const abs = safePath(relativePath, mounts);
-  if (!existsSync(abs)) {
-    throw new Error(`File not found: ${relativePath}`);
-  }
-  return Bun.file(abs).text() as unknown as string;
-}
-
-export async function readFileAsync(relativePath: string, mounts?: Record<string, string>): Promise<string> {
+export async function readFile(relativePath: string, mounts?: Record<string, string>): Promise<string> {
   const abs = safePath(relativePath, mounts);
   if (!existsSync(abs)) {
     throw new Error(`File not found: ${relativePath}`);

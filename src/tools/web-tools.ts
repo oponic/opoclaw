@@ -1,6 +1,5 @@
 import { search, fetchWeb } from "../search/index.ts";
-import { defineTool, type ToolDefinition, type ToolContext } from "./types.ts";
-import type { OpoclawConfig } from "../config.ts";
+import { defineTool, type ToolDefinition } from "./types.ts";
 
 export const WEB_TOOLS = {
     search: defineTool(

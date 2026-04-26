@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "fs/promises";
 import { resolve } from "path";
-import { WORKSPACE_DIR, readFile, readFileAsync, editFile, listFiles } from "../src/workspace.ts";
+import { WORKSPACE_DIR, readFile, editFile, listFiles } from "../src/workspace.ts";
 
 const TEST_DIR = resolve(WORKSPACE_DIR, "__test__");
 
@@ -16,11 +16,10 @@ async function cleanup() {
 }
 
 describe("workspace", () => {
-  test("readFile/readFileAsync and editFile", async () => {
+  test("readFile and editFile", async () => {
     await setup();
     const rel = "__test__/a.txt";
     expect(await readFile(rel)).toBe("alpha");
-    expect(await readFileAsync(rel)).toBe("alpha");
     await editFile(rel, "beta");
     expect(await readFile(rel)).toBe("beta");
     await cleanup();

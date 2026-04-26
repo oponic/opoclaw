@@ -2,7 +2,7 @@ import { resolve } from "path";
 import { unlink } from "fs/promises";
 import { getSemanticSearchEnabled, useTomlFiles, type OpoclawConfig } from "../config.ts";
 import { listSkills } from "../skills.ts";
-import { readFileAsync } from "../workspace.ts";
+import { readFile } from "../workspace.ts";
 
 export const OP_DIR = resolve(import.meta.dir, "../..");
 export const HIBERNATE_FILE = resolve(OP_DIR, ".gateway.hibernate");
@@ -53,10 +53,10 @@ export async function buildSystemPrompt(config: OpoclawConfig, extraSections: st
     const useToml = useTomlFiles(config);
     const [systemBase, agentsContent, soulContent, identityContent, memoryContent, skills] = await Promise.all([
         Bun.file(SYSTEM_PROMPT_FILE).text().catch(() => ""),
-        readFileAsync(useToml ? "agents.toml" : "AGENTS.md").catch(() => ""),
-        readFileAsync(useToml ? "soul.toml" : "SOUL.md").catch(() => ""),
-        readFileAsync(useToml ? "identity.toml" : "IDENTITY.md").catch(() => ""),
-        readFileAsync(useToml ? "memory.toml" : "MEMORY.md").catch(() => ""),
+        readFile(useToml ? "agents.toml" : "AGENTS.md").catch(() => ""),
+        readFile(useToml ? "soul.toml" : "SOUL.md").catch(() => ""),
+        readFile(useToml ? "identity.toml" : "IDENTITY.md").catch(() => ""),
+        readFile(useToml ? "memory.toml" : "MEMORY.md").catch(() => ""),
         listSkills(),
     ]);
 
