@@ -5,7 +5,7 @@
 
 import { resolve } from "path";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "fs";
-import { execSync, spawn } from "child_process";
+import { spawn } from "child_process";
 import { homedir } from "os";
 import { createInterface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
@@ -17,6 +17,7 @@ import { runCoreChatTurn } from "./channels/core.ts";
 
 const OP_DIR = resolve(import.meta.dir, "..");
 import { loadConfig, getConfigPath, formatTOMLValue, parseTOML, toTOML } from "./config.ts";
+import { exec, checkForUpdate, doUpdate } from "./utils.ts";
 
 const USAGE_FILE = resolve(OP_DIR, "usage.json");
 const WORKSPACE_DIR = resolve(OP_DIR, "workspace");
@@ -57,11 +58,6 @@ function getOS(): "macos" | "linux" | "windows" {
 }
 
 
-
-function exec(cmd: string, opts?: { cwd?: string }): string {
-  return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], ...opts }).trim();
-}
-
 // ── Usage ──────────────────────────────────────────────────────────────────
 
 async function showUsage() {
@@ -100,108 +96,6 @@ async function showUsage() {
   console.log();
 }
 
-// ── Update Check ───────────────────────────────────────────────────────────
-
-async function checkForUpdate(silent = false): Promise<string | null> {
-  try {
-    const currentTag = exec("git describe --tags --abbrev=0 2>/dev/null || echo ''", { cwd: OP_DIR });
-    if (!currentTag) return null;
-
-    // Fetch latest tags
-    exec("git fetch --tags 2>/dev/null", { cwd: OP_DIR });
-    const tagsRaw = exec("git tag --sort=-v:refname", { cwd: OP_DIR });
-    const tags = tagsRaw.split("\n").map((t) => t.trim()).filter(Boolean);
-    let channel: "stable" | "unstable" = "stable";
-    try {
-      channel = (loadConfig().update_channel as any) || "stable";
-    } catch {}
-    const latestTag = pickLatestTag(tags, channel, currentTag);
-
-    if (latestTag && latestTag !== currentTag) {
-      if (!silent) {
-        console.log(kleur.yellow(`📦 Update available: ${currentTag} → ${latestTag}`));
-        console.log(`   Run ${kleur.bold("opoclaw update")} to upgrade.\n`);
-      }
-      return latestTag;
-    }
-
-    if (!silent) {
-      ok("Up to date (latest: " + currentTag + ")");
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function isStableTag(tag: string): boolean {
-  if (!tag) return false;
-  if (tag.includes("-")) return false;
-  return !/(alpha|beta|rc)/i.test(tag);
-}
-
-function baseVersion(tag: string): string {
-  return tag.replace(/^v/i, "").split("-")[0] || tag;
-}
-
-function isPrereleaseTag(tag: string): boolean {
-  return tag.includes("-") || /(alpha|beta|rc)/i.test(tag);
-}
-
-function pickLatestTag(tags: string[], channel: "stable" | "unstable", currentTag: string): string | null {
-  const currentIndex = tags.indexOf(currentTag);
-  const candidates = currentIndex >= 0 ? tags.slice(0, currentIndex) : tags;
-  const currentIsStable = isStableTag(currentTag);
-  const currentBase = baseVersion(currentTag);
-  for (const tag of candidates) {
-    if (currentIsStable && isPrereleaseTag(tag) && baseVersion(tag) === currentBase) {
-      continue;
-    }
-    if (channel === "unstable") return tag;
-    if (isStableTag(tag)) return tag;
-  }
-  return null;
-}
-
-function setUpdateChannel(channel: "stable" | "unstable") {
-  const cfgPath = getConfigPath();
-  if (!existsSync(cfgPath)) return;
-  const raw = readFileSync(cfgPath, "utf-8");
-  const parsed = parseTOML(raw);
-  parsed.update_channel = channel;
-  writeFileSync(cfgPath, toTOML(parsed));
-}
-
-async function doUpdate(channelOverride?: "unstable") {
-  if (channelOverride === "unstable") {
-    setUpdateChannel("unstable");
-  }
-
-  info("Pulling latest changes...");
-  exec("git fetch --tags", { cwd: OP_DIR });
-  const currentTag = exec("git describe --tags --abbrev=0 2>/dev/null || echo ''", { cwd: OP_DIR });
-  const tagsRaw = exec("git tag --sort=-v:refname", { cwd: OP_DIR });
-  const tags = tagsRaw.split("\n").map((t) => t.trim()).filter(Boolean);
-  let channel: "stable" | "unstable" = "stable";
-  try {
-    channel = (loadConfig().update_channel as any) || "stable";
-  } catch {}
-  const latestTag = pickLatestTag(tags, channel, currentTag);
-  if (!latestTag) {
-    err("No matching release tag found.");
-    return;
-  }
-  exec(`git checkout ${latestTag}`, { cwd: OP_DIR });
-  ok(`Updated to ${latestTag}`);
-
-  info("Installing dependencies...");
-  exec("bun install", { cwd: OP_DIR });
-  ok("Dependencies updated");
-
-  info("Restarting gateway...");
-  await gatewayRestart();
-  ok("Gateway restarted with update");
-}
 
 // ── Gateway Management ─────────────────────────────────────────────────────
 
@@ -841,7 +735,7 @@ async function main() {
       break;
 
     case "update":
-      await doUpdate(args[1] === "unstable" ? "unstable" : undefined);
+      await doUpdate(args[1] === "unstable" ? "unstable" : undefined, gatewayRestart);
       break;
 
     case "check-update":
