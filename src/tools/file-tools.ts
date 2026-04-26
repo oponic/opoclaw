@@ -72,10 +72,10 @@ export const FILE_TOOLS = {
         },
         ["path"],
         {
-            handler: async (args, { config, setPendingFileSend }) => {
+            handler: async (args, { config, session }) => {
                 if (!args.path) throw new Error("Missing 'path' argument for send_file.");
                 getFilePath(String(args.path), config.mounts);
-                setPendingFileSend?.({ path: String(args.path), caption: String(args.caption || "") });
+                session.pendingFileSend = { path: String(args.path), caption: String(args.caption || "") };
                 return `File "${args.path}" queued for sending.`;
             },
         },

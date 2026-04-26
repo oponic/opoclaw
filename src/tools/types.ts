@@ -21,7 +21,6 @@ export type ToolContext = {
     config: OpoclawConfig;
     session: AgentSession;
     onDeepResearchSummary?: (summary: string) => Promise<void>;
-    setPendingFileSend?: (value: PendingFileSend) => void;
 };
 
 export type ToolHandler = (args: ToolArgs, context: ToolContext) => Promise<string>;

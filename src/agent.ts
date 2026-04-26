@@ -389,8 +389,7 @@ export class AgentSession {
                             return await handleToolCall(tc.function.name, args, {
                                 config,
                                 session: this,
-                                onDeepResearchSummary: callbacks.onDeepResearchSummary,
-                                setPendingFileSend: v => { this.pendingFileSend = v; },
+                                onDeepResearchSummary: callbacks.onDeepResearchSummary
                             });
                         };
                         if (callbacks.requestToolApproval) {

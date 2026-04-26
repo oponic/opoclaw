@@ -44,10 +44,10 @@ describe("tools", () => {
   test("send_file queues", async () => {
     await setup();
     const rel = "__tools_test__/a.txt";
-    let queued: { path: string; caption: string } | null = null;
-    const res = await handleToolCall("send_file", { path: rel }, { config: {} as any, session: new AgentSession("test-session"), setPendingFileSend: v => { queued = v; } });
+    const session = new AgentSession("test-session");
+    const res = await handleToolCall("send_file", { path: rel }, { config: {} as any, session });
     expect(res).toContain("queued");
-    expect(queued!.path).toBe(rel);
+    expect(session.pendingFileSend?.path).toBe(rel);
     await cleanup();
   });
 
