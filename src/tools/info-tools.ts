@@ -13,10 +13,10 @@ export const INFO_TOOLS = {
                 const modelId = getModelId(config);
                 const provider = getActiveProvider(config);
                 let channel = "unknown";
-                if (session.sessionId?.startsWith("opoclaw-openai-")) channel = "openai";
-                else if (session.sessionId?.startsWith("opoclaw-core-")) channel = "core/terminal";
-                else if (session.sessionId?.includes("discord")) channel = "discord";
-                else if (session.sessionId?.includes("irc")) channel = "irc";
+                if (session.sessionId.startsWith("opoclaw-openai-")) channel = "openai";
+                else if (session.sessionId.startsWith("opoclaw-core-")) channel = "core/terminal";
+                else if (session.sessionId.includes("discord")) channel = "discord";
+                else if (session.sessionId.includes("irc")) channel = "irc";
 
                 const usageStats = await loadUsage();
                 const now = new Date();

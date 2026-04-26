@@ -9,8 +9,8 @@ function defaultGenerateCompletion(
     messages: Message[],
     config: OpoclawConfig,
     onFirstToken: () => void,
-    toolsOverride?: any[],
-    sessionId?: string,
+    toolsOverride: any[] | undefined,
+    sessionId: string,
 ): Promise<CompletionResult> {
     if (getActiveProvider(config) === "custom" && config.provider?.custom?.api_type === "anthropic") {
         return anthropicGenerate(messages, config, onFirstToken, toolsOverride);

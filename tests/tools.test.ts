@@ -6,7 +6,7 @@ import { handleToolCall, type ToolContext } from "../src/tools/index.ts";
 import { AgentSession } from "../src/agent.ts";
 import { WORKSPACE_DIR } from "../src/workspace.ts";
 
-const DUMMY_TOOL_CONTEXT: ToolContext = { config: {} as any, session: new AgentSession() };
+const DUMMY_TOOL_CONTEXT: ToolContext = { config: {} as any, session: new AgentSession("test-session") };
 
 const TEST_DIR = resolve(WORKSPACE_DIR, "__tools_test__");
 
@@ -45,7 +45,7 @@ describe("tools", () => {
     await setup();
     const rel = "__tools_test__/a.txt";
     let queued: { path: string; caption: string } | null = null;
-    const res = await handleToolCall("send_file", { path: rel }, { config: {} as any, session: new AgentSession(), setPendingFileSend: v => { queued = v; } });
+    const res = await handleToolCall("send_file", { path: rel }, { config: {} as any, session: new AgentSession("test-session"), setPendingFileSend: v => { queued = v; } });
     expect(res).toContain("queued");
     expect(queued!.path).toBe(rel);
     await cleanup();

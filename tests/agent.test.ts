@@ -27,7 +27,7 @@ describe("agent", () => {
         const original = provider.generateCompletion;
         provider.generateCompletion = async () => textResult("Hello");
         try {
-            const result = await runAgent([{ role: "user", content: "hi" }], "system", cfg, dummyCallbacks);
+            const result = await runAgent([{ role: "user", content: "hi" }], "system", cfg, dummyCallbacks, "test-session");
             expect(result.text).toBe("Hello");
         } finally {
             provider.generateCompletion = original;
@@ -49,7 +49,7 @@ describe("agent", () => {
         };
 
         try {
-            const session = new AgentSession();
+            const session = new AgentSession("test-session");
             session.addMessage({ role: "user", content: "send me that file" });
             await session.evaluate("system", cfg, dummyCallbacks);
             expect(session.pendingFileSend?.path).toBe("__agent_test__/out.txt");
@@ -65,7 +65,7 @@ describe("agent", () => {
         provider.generateCompletion = async () => { throw new Error("API error"); };
         try {
             await expect(
-                runAgent([{ role: "user", content: "hi" }], "system", cfg, dummyCallbacks)
+                runAgent([{ role: "user", content: "hi" }], "system", cfg, dummyCallbacks, "test-session")
             ).rejects.toThrow();
         } finally {
             provider.generateCompletion = original;
@@ -83,7 +83,7 @@ describe("agent", () => {
         };
 
         try {
-            const session = new AgentSession();
+            const session = new AgentSession("test-session");
             session.addMessage({ role: "user", content: "do delegation" });
             const result = await session.evaluate("system", cfg, dummyCallbacks);
             expect(result.text).toBe("main final");
@@ -105,7 +105,7 @@ describe("agent", () => {
         };
 
         try {
-            const session = new AgentSession();
+            const session = new AgentSession("test-session");
             for (let i = 0; i < 10; i++) {
                 session.addMessage({ role: i % 2 === 0 ? "user" : "assistant", content: `message-${i}` });
             }
@@ -131,7 +131,7 @@ describe("agent", () => {
             return textResult("main continues");
         };
         try {
-            const session = new AgentSession();
+            const session = new AgentSession("test-session");
             session.addMessage({ role: "user", content: "start background task" });
             await session.evaluate("system", cfg, dummyCallbacks);
             expect(injectedSeen).toBe(true);
@@ -154,7 +154,7 @@ describe("agent", () => {
         };
 
         try {
-            const session = new AgentSession();
+            const session = new AgentSession("test-session");
             session.addMessage({ role: "user", content: "set a timer for 0.1 seconds" });
 
             await session.evaluate("system", cfg, dummyCallbacks);

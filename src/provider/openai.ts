@@ -7,8 +7,8 @@ export async function generateCompletion(
     messages: Message[],
     config: OpoclawConfig,
     onFirstToken: () => void,
-    toolsOverride?: any[],
-    sessionId?: string,
+    toolsOverride: any[] | undefined,
+    sessionId: string,
 ): Promise<CompletionResult> {
     const client = new OpenAI({
         apiKey: getApiKey(config) || "ollama",
@@ -29,7 +29,7 @@ export async function generateCompletion(
         if (config.enable_reasoning) {
             requestParams.reasoning = { enabled: true };
         }
-        if (sessionId !== undefined) {
+        if (config.provider?.openrouter?.use_session_ids !== false) {
             requestParams.session_id = sessionId;
         }
     }

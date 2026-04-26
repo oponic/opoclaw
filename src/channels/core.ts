@@ -42,11 +42,9 @@ export async function runCoreChatTurn(
 ): Promise<{ text: string; reasoningSummary?: string }> {
     const config = loadConfig();
     const toolCallSummaries = config.tool_call_summaries ?? "full";
-    const useSessionIds = config.provider?.openrouter?.use_session_ids !== false;
     let session = coreChatSessions.get(sessionKey);
     if (!session) {
-        const sid = useSessionIds ? `opoclaw-core-${sessionKey}-${Date.now()}` : undefined;
-        session = new AgentSession(sid);
+        session = new AgentSession(`opoclaw-core-${sessionKey}-${Date.now()}`);
         coreChatSessions.set(sessionKey, session);
     }
 
@@ -84,7 +82,7 @@ export async function runCoreChatTurn(
         callbacks.onToolLine?.(`Tool error: ${error.message}`);
     };
 
-    const onToolBatch = async (calls: ToolCall[], results: any[], sessionId?: string) => {
+    const onToolBatch = async (calls: ToolCall[], results: any[], sessionId: string) => {
         if (toolCallSummaries !== "minimal") return;
         const summary = await summarizeToolBatch(calls, results, config, sessionId);
         const trimmed = summary.trim();

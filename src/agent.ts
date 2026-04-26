@@ -27,7 +27,7 @@ function configWithModel(config: OpoclawConfig, model: string): OpoclawConfig {
 async function generateReasoningSummary(
     reasoningText: string,
     config: OpoclawConfig,
-    sessionId?: string
+    sessionId: string
 ): Promise<string> {
     if (isAnthropicCustom(config)) return "(no summary)";
 
@@ -46,7 +46,7 @@ export async function summarizeToolBatch(
     calls: ToolCall[],
     results: ToolResult[],
     config: OpoclawConfig,
-    sessionId?: string
+    sessionId: string
 ): Promise<string> {
     const summaryInput = results.map((r) => ({
         name: r.name,
@@ -86,8 +86,8 @@ function parseDeepResearchDocs(text: string): { title: string; content: string }
 export async function runDeepResearch(
     query: string,
     config: OpoclawConfig,
-    onSearchSummary?: (summary: string) => Promise<void>,
-    sessionId?: string
+    onSearchSummary: ((summary: string) => Promise<void>) | undefined,
+    sessionId: string
 ): Promise<string> {
     const systemPrompt =
         "You are in Deep Research mode. Use search and web_fetch to gather information. " +
@@ -135,7 +135,7 @@ export interface AgentCallbacks {
     onToolCall: (call: ToolCall, uniqueId: string) => void,
     onToolCallError: (uniqueId: string, error: Error) => void,
     requestToolApproval?: (call: ToolCall, uniqueId: string) => Promise<{ approved: boolean; message?: string }>,
-    onToolBatch?: (calls: ToolCall[], results: ToolResult[], sessionId?: string) => Promise<void>,
+    onToolBatch?: (calls: ToolCall[], results: ToolResult[], sessionId: string) => Promise<void>,
     onDeepResearchSummary?: (summary: string) => Promise<void>,
     executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>
 }
@@ -150,13 +150,13 @@ export type BackgroundSubagentJob = {
 };
 
 export class AgentSession {
-    sessionId: string | undefined;
+    sessionId: string;
     messages: Message[];
     currentSystemPrompt: string = "";
     pendingFileSend: { path: string; caption: string } | null = null;
     private backgroundJobs = new Map<string, BackgroundSubagentJob>();
 
-    constructor(sessionId?: string) {
+    constructor(sessionId: string) {
         this.sessionId = sessionId;
         this.messages = [];
     }
@@ -193,8 +193,7 @@ export class AgentSession {
     }
 
     async deepResearch(query: string, config: OpoclawConfig, onSearchSummary?: (summary: string) => Promise<void>): Promise<string> {
-        const sessionId = this.sessionId ? `${this.sessionId}-deepresearch-${Date.now()}` : undefined;
-        return runDeepResearch(query, config, onSearchSummary, sessionId);
+        return runDeepResearch(query, config, onSearchSummary, `${this.sessionId}-deepresearch-${Date.now()}`);
     }
 
     addMessage(msg: Message): void {
@@ -236,9 +235,7 @@ export class AgentSession {
             },
         ];
 
-        const subSessionId = this.sessionId
-            ? `${this.sessionId}-subagent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-            : undefined;
+        const subSessionId = `${this.sessionId}-subagent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const result = await provider.generateCompletion(subagentMessages, config, () => {}, [], subSessionId);
         if (result.usage) {
             await recordUsage(result.usage, getModelId(config));
@@ -463,7 +460,7 @@ export async function runAgent(
     systemPrompt: string,
     config: OpoclawConfig,
     callbacks: AgentCallbacks,
-    sessionId?: string
+    sessionId: string
 ): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
     const session = new AgentSession(sessionId);
     session.messages = [...history];

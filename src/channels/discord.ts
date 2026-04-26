@@ -373,9 +373,7 @@ export async function startDiscord(): Promise<void> {
         // Get or bootstrap session for this channel
         let session = channelSessions.get(msg.channelId);
         if (!session) {
-            const useSessionIds = config.provider?.openrouter?.use_session_ids !== false;
-            const sid = useSessionIds ? `opoclaw-discord-${client.user!.id}-${msg.channelId}-${Date.now()}` : undefined;
-            session = new AgentSession(sid);
+            session = new AgentSession(`opoclaw-discord-${client.user!.id}-${msg.channelId}-${Date.now()}`);
             channelSessions.set(msg.channelId, session);
             for (const m of await buildChannelHistory(msg)) {
                 session.addMessage(m);
@@ -493,7 +491,7 @@ export async function startDiscord(): Promise<void> {
             }
         };
 
-        const onToolBatch = async (calls: ToolCall[], results: any[], sessionId?: string) => {
+        const onToolBatch = async (calls: ToolCall[], results: any[], sessionId: string) => {
             if (toolCallSummaries !== "minimal") return;
             try {
                 const summary = await summarizeToolBatch(calls, results, config, sessionId);

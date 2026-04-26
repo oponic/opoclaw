@@ -99,7 +99,7 @@ export async function startIRC(): Promise<void> {
                 onFirstToken: () => {},
                 onToolCall: () => {},
                 onToolCallError: () => {}
-            });
+            }, `opoclaw-irc-${key}-${Date.now()}`);
 
             pushHistory(key, { role: "user", content: `[${sender}]: ${userText}` });
             if (responseText && responseText.trim() !== "HEARTBEAT_OK") {

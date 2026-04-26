@@ -30,6 +30,6 @@ export type ProviderFn = (
     messages: Message[],
     config: OpoclawConfig,
     onFirstToken: () => void,
-    toolsOverride?: any[],
-    sessionId?: string
+    toolsOverride: any[] | undefined,
+    sessionId: string
 ) => Promise<CompletionResult>;
