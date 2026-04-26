@@ -27,11 +27,7 @@ import { requiresToolApproval } from "../tools/index.ts";
 import { getFilePath } from "../workspace.ts";
 import { getVisionEnabled, loadConfig, getActiveProvider, getModelId } from "../config.ts";
 import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";
-import { execSync } from "child_process";
-
-function exec(cmd: string, opts?: { cwd?: string }): string {
-  return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], ...opts }).trim();
-}
+import { exec, getUpdateTag } from "../utils.ts";
 
 export const client = new Client({
     intents: [
@@ -48,11 +44,6 @@ const EYES = "👀";
 const THINKING = "🤔";
 const TOOL = "🔧";
 const APPROVAL_TIMEOUT_MS = 60_000;
-const UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000;
-const dec = new TextDecoder();
-let lastUpdateCheck = 0;
-let cachedUpdateTag: string | null = null;
-let cachedUpdateChannel: "stable" | "unstable" | null = null;
 
 type PollState = {
     channelId: string;
@@ -103,76 +94,6 @@ function getPollSummary(channelId: string): string {
         return `• ${p.title}: ${p.question} (${options}) Total: ${total}`;
     });
     return `\n## Active Polls\n${lines.join("\n")}`;
-}
-
-function runGit(cmd: string): string | null {
-    try {
-        const p = Bun.spawnSync({
-            cmd: ["bash", "-lc", cmd],
-            cwd: OP_DIR,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        if (p.exitCode !== 0) return null;
-        return dec.decode(p.stdout).trim();
-    } catch {
-        return null;
-    }
-}
-
-async function getUpdateTag(): Promise<string | null> {
-    const now = Date.now();
-    const channel = (loadConfig().update_channel as any) || "stable";
-    if (now - lastUpdateCheck < UPDATE_CHECK_INTERVAL_MS && cachedUpdateChannel === channel) {
-        return cachedUpdateTag;
-    }
-    lastUpdateCheck = now;
-    cachedUpdateChannel = channel;
-
-    const currentTag = runGit("git describe --tags --abbrev=0 2>/dev/null || echo ''");
-    if (!currentTag) {
-        cachedUpdateTag = null;
-        return null;
-    }
-    runGit("git fetch --tags 2>/dev/null || true");
-    const tagsRaw = runGit("git tag --sort=-v:refname") || "";
-    const tags = tagsRaw.split("\n").map((t) => t.trim()).filter(Boolean);
-    const latestTag = pickLatestTag(tags, channel, currentTag);
-    if (latestTag && latestTag !== currentTag) {
-        cachedUpdateTag = latestTag;
-        return latestTag;
-    }
-    cachedUpdateTag = null;
-    return null;
-}
-
-function isStableTag(tag: string): boolean {
-    if (!tag) return false;
-    if (tag.includes("-")) return false;
-    return !/(alpha|beta|rc)/i.test(tag);
-}
-
-function baseVersion(tag: string): string {
-    return tag.replace(/^v/i, "").split("-")[0] || tag;
-}
-
-function isPrereleaseTag(tag: string): boolean {
-    return tag.includes("-") || /(alpha|beta|rc)/i.test(tag);
-}
-
-function pickLatestTag(tags: string[], channel: "stable" | "unstable", currentTag: string): string | null {
-    const currentIndex = tags.indexOf(currentTag);
-    const candidates = currentIndex >= 0 ? tags.slice(0, currentIndex) : tags;
-    const currentIsStable = isStableTag(currentTag);
-    const currentBase = baseVersion(currentTag);
-    for (const tag of candidates) {
-        if (currentIsStable && isPrereleaseTag(tag) && baseVersion(tag) === currentBase) {
-            continue;
-        }
-        if (channel === "unstable") return tag;
-        if (isStableTag(tag)) return tag;
-    }
-    return null;
 }
 
 async function removeReaction(msg: Message, emoji: string): Promise<void> {
