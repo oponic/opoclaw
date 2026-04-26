@@ -28,7 +28,6 @@ import { getFilePath } from "../workspace.ts";
 import { getVisionEnabled, loadConfig, getActiveProvider, getModelId } from "../config.ts";
 import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";
 import { execSync } from "child_process";
-import { format } from "path";
 
 function exec(cmd: string, opts?: { cwd?: string }): string {
   return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], ...opts }).trim();
@@ -189,6 +188,28 @@ async function addReaction(msg: Message, emoji: string): Promise<void> {
         await msg.react(emoji);
     } catch {
     }
+}
+
+async function sendEmbedApproval(
+    channel: TextChannel,
+    authorizedUserId: string,
+    embed: EmbedBuilder,
+    yesId: string,
+    noId: string,
+): Promise<boolean> {
+    const notice = await channel.send("-# Requesting permission...");
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(yesId).setLabel("Yes").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(noId).setLabel("No").setStyle(ButtonStyle.Danger),
+    );
+    const prompt = await channel.send({ embeds: [embed], components: [row] });
+    const approved = await awaitButtonApproval(prompt, authorizedUserId);
+    const finalEmbed = EmbedBuilder.from(embed)
+        .setColor(0x242429)
+        .setFooter({ text: approved ? "Approved" : "Denied or timed out" });
+    await prompt.edit({ embeds: [finalEmbed], components: [] });
+    await notice.edit(`-# Permission ${approved ? "granted" : "denied"}.`);
+    return approved;
 }
 
 async function awaitButtonApproval(prompt: Message, authorizedUserId: string): Promise<boolean> {
@@ -371,24 +392,11 @@ export async function startDiscord(): Promise<void> {
             }
 
             const channel = msg.channel as TextChannel;
-            const notice = await channel.send("-# Requesting permission...");
             const embed = new EmbedBuilder()
                 .setTitle("Wake Gateway?")
                 .setDescription("The gateway is hibernating. Approve to wake it and continue.")
                 .setColor(0x242429);
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId("wake:yes").setLabel("Yes").setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId("wake:no").setLabel("No").setStyle(ButtonStyle.Danger),
-            );
-            const prompt = await channel.send({ embeds: [embed], components: [row] });
-
-            const approved = await awaitButtonApproval(prompt, authorizedUserId);
-
-            const finalEmbed = EmbedBuilder.from(embed)
-                .setColor(0x242429)
-                .setFooter({ text: approved ? "Approved" : "Denied or timed out" });
-            await prompt.edit({ embeds: [finalEmbed], components: [] });
-            await notice.edit(`-# Permission ${approved ? "granted" : "denied"}.`);
+            const approved = await sendEmbedApproval(channel, authorizedUserId, embed, "wake:yes", "wake:no");
 
             if (!approved) return;
             await setHibernating(false);
@@ -511,7 +519,6 @@ export async function startDiscord(): Promise<void> {
             }
 
             const channel = msg.channel as TextChannel;
-            const notice = await channel.send("-# Requesting permission...");
 
             let argsPreview = "(no args)";
             try {
@@ -531,22 +538,7 @@ export async function startDiscord(): Promise<void> {
                 .setTitle("Authorize Tool Call")
                 .setDescription(`Tool: \`${call.function.name}\`\nArgs: ${argsPreview}`)
                 .setColor(0x242429);
-
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId(`approve:${uniqueId}:yes`).setLabel("Yes").setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`approve:${uniqueId}:no`).setLabel("No").setStyle(ButtonStyle.Danger),
-            );
-
-            const prompt = await channel.send({ embeds: [embed], components: [row] });
-
-            const approved = await awaitButtonApproval(prompt, authorizedUserId);
-
-            const finalEmbed = EmbedBuilder.from(embed)
-                .setColor(0x242429)
-                .setFooter({ text: approved ? "Approved" : "Denied or timed out" });
-
-            await prompt.edit({ embeds: [finalEmbed], components: [] });
-            await notice.edit(`-# Permission ${approved ? "granted" : "denied"}.`);
+            const approved = await sendEmbedApproval(channel, authorizedUserId, embed, `approve:${uniqueId}:yes`, `approve:${uniqueId}:no`);
 
             if (!approved) {
                 return {
@@ -574,28 +566,12 @@ export async function startDiscord(): Promise<void> {
                     : "Permission Request";
 
                 const channel = msg.channel as TextChannel;
-                const notice = await channel.send("-# Requesting permission...");
                 const embed = new EmbedBuilder()
                     .setTitle(title)
                     .setColor(0x242429);
-                if (message) {
-                    embed.setDescription(message);
-                }
-
+                if (message) embed.setDescription(message);
                 const promptId = Math.random().toString(36).slice(2);
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder().setCustomId(`request:${promptId}:yes`).setLabel("Yes").setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId(`request:${promptId}:no`).setLabel("No").setStyle(ButtonStyle.Danger),
-                );
-                const prompt = await channel.send({ embeds: [embed], components: [row] });
-
-                const approved = await awaitButtonApproval(prompt, authorizedUserId);
-
-                const finalEmbed = EmbedBuilder.from(embed)
-                    .setColor(0x242429)
-                    .setFooter({ text: approved ? "Approved" : "Denied or timed out" });
-                await prompt.edit({ embeds: [finalEmbed], components: [] });
-                await notice.edit(`-# Permission ${approved ? "granted" : "denied"}.`);
+                const approved = await sendEmbedApproval(channel, authorizedUserId, embed, `request:${promptId}:yes`, `request:${promptId}:no`);
 
                 return approved ? "Approved." : "Denied.";
             }

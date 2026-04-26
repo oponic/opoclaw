@@ -1,4 +1,4 @@
-import { readFileAsync, getFilePath, editFile, listFiles } from "../workspace.ts";
+import { readFile, getFilePath, editFile, listFiles } from "../workspace.ts";
 import { defineTool, type ToolDefinition } from "./types.ts";
 
 export const FILE_TOOLS = {
@@ -16,7 +16,7 @@ export const FILE_TOOLS = {
             enabled: (config) => config.basic_tools ?? true,
             handler: async (args, { config }) => {
                 if (!args.path) throw new Error("Missing 'path' argument for read_file.");
-                return await readFileAsync(String(args.path), config.mounts);
+                return await readFile(String(args.path), config.mounts);
             },
         },
     ),

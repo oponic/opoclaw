@@ -3,8 +3,8 @@
  * opoclaw CLI — usage, gateway management, updates, uninstall
  */
 
-import { resolve, join } from "path";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync } from "fs";
+import { resolve } from "path";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "fs";
 import { execSync, spawn } from "child_process";
 import { homedir } from "os";
 import { createInterface } from "readline/promises";
@@ -16,8 +16,7 @@ import { runCoreChatTurn } from "./channels/core.ts";
 // ── Paths ──────────────────────────────────────────────────────────────────
 
 const OP_DIR = resolve(import.meta.dir, "..");
-import { loadConfig, getConfigPath, formatTOMLValue } from "./config.ts";
-import { parseTOML, toTOML } from "./config.ts";
+import { loadConfig, getConfigPath, formatTOMLValue, parseTOML, toTOML } from "./config.ts";
 
 const USAGE_FILE = resolve(OP_DIR, "usage.json");
 const WORKSPACE_DIR = resolve(OP_DIR, "workspace");
@@ -173,24 +172,6 @@ function setUpdateChannel(channel: "stable" | "unstable") {
   writeFileSync(cfgPath, toTOML(parsed));
 }
 
-async function notifyUpdateDiscord(newVersion: string) {
-  try {
-    const config = loadConfig();
-    const currentTag = exec("git describe --tags --abbrev=0 2>/dev/null", { cwd: OP_DIR });
-
-    const msg = `📦 **opoclaw update available:** \`${currentTag}\` → \`${newVersion}\`\nRun \`\`\`opoclaw update\`\`\` to upgrade.`;
-
-    await fetch("https://discord.com/api/v10/channels/messages", {
-      method: "POST",
-      headers: {
-        Authorization: `Bot ${config.channel?.discord?.token || ""}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ content: msg }),
-    });
-  } catch {}
-}
-
 async function doUpdate(channelOverride?: "unstable") {
   if (channelOverride === "unstable") {
     setUpdateChannel("unstable");
@@ -279,7 +260,6 @@ async function gatewayStart() {
   const newVersion = await checkForUpdate(true);
   if (newVersion) {
     warn(`Update available: ${newVersion}`);
-    await notifyUpdateDiscord(newVersion);
   }
 
   info("Starting gateway...");

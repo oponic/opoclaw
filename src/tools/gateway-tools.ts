@@ -2,6 +2,7 @@ import path from "path";
 import { readFile, writeFile } from "fs/promises";
 import { getConfigPath, parseTOML, toTOML } from "../config.ts";
 import { defineTool, type ToolDefinition } from "./types.ts";
+import { setHibernating } from "../channels/shared.ts";
 
 function setNestedValue(obj: Record<string, any>, keyPath: string, value: any): void {
     const parts = keyPath.split(".").map((part) => part.trim()).filter(Boolean);
@@ -94,8 +95,7 @@ export const GATEWAY_TOOLS = {
         {
             requiresApproval: true,
             handler: async () => {
-                const hibernatePath = path.resolve(import.meta.dir, "../..", ".gateway.hibernate");
-                await writeFile(hibernatePath, new Date().toISOString(), "utf-8");
+                await setHibernating(true);
                 return "Gateway hibernation enabled.";
             },
         },
