@@ -1,4 +1,4 @@
-import { startCore } from "./channels/core.ts";
+import { startCore } from "./channels/core/index.ts";
 
 try {
     await startCore();

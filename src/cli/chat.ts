@@ -2,7 +2,7 @@ import { createInterface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
 import kleur from "kleur";
 import type { ToolCall } from "../agent.ts";
-import { runCoreChatTurn } from "../channels/core.ts";
+import { runCoreChatTurn } from "../channels/core/chat.ts";
 import { banner, cmdStyle, subtle, value, chip, okChip, errChip } from "./output.ts";
 import type { ChipTone } from "./output.ts";
 
