@@ -64,7 +64,29 @@ This folder is home.
 Participate, don't dominate. Respond when you can add value.
 `;
 
-const DEFAULT_SOUL_MD = `# <filename> - Who You Are
+const DEFAULT_AGENTS_TOML = `workspace = "<filename>"
+# This folder is home.
+
+session = [
+    "1. Read SOUL.md — this is who you are",
+    "2. Read IDENTITY.md — this is who you are",
+    "3. Read MEMORY.md — this is what you remember"
+]
+
+memory = [
+    "Daily notes: memory/YYYY-MM-DD.md",
+    "Long-term: MEMORY.md"
+]
+
+safety = [
+     "Don't exfiltrate private data.",
+     "Don't run destructive commands without asking.",
+     "trash > rm"
+]
+
+chats = ["Participate, don't dominate. Respond when you can add value."]`;
+
+const DEFAULT_SOUL_MD = `
 
 _You're not a chatbot. You're becoming someone._
 
@@ -310,6 +332,7 @@ async function main() {
         "HEARTBEAT.md": DEFAULT_HEARTBEAT,
     };
     const filesToml: Record<string, string> = {
+        "agents.toml": DEFAULT_AGENTS_TOML,
         "soul.toml": DEFAULT_SOUL_TOML,
         "identity.toml": DEFAULT_IDENTITY_TOML,
         "memory.toml": DEFAULT_MEMORY_TOML,
