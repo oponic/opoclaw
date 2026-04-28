@@ -6,6 +6,7 @@ import { AGENT_TOOLS } from "./agent-tools.ts";
 import { INFO_TOOLS } from "./info-tools.ts";
 import { DISCORD_TOOLS } from "./discord-tools.ts";
 import { SHELL_TOOLS } from "./shell-tool.ts";
+import { WEBVIEW_TOOLS } from "./webview-tools.ts";
 import type { ToolArgs, ToolContext, ToolSchema, ToolDefinition } from "./types.ts";
 import type { OpoclawConfig } from "../config.ts";
 
@@ -20,6 +21,7 @@ const TOOL_DEFINITIONS = {
     ...INFO_TOOLS,
     ...DISCORD_TOOLS,
     ...SHELL_TOOLS,
+    ...WEBVIEW_TOOLS,
 } satisfies Record<string, ToolDefinition>;
 
 export type ToolName = keyof typeof TOOL_DEFINITIONS;
