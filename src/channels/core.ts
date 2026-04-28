@@ -232,7 +232,7 @@ export async function startCore() {
         await startDiscord();
     } catch (err: any) {
         console.error(`Discord channel failed to start: ${err.message}`);
-        throw err;
+        console.error("Discord channel startup failed; continuing");
     }
 
     try {

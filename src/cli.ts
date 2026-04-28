@@ -187,10 +187,10 @@ async function gatewayStart() {
 
   // Pipe stdout/stderr with prefix
   child.stdout?.on("data", (d: Buffer) => {
-    process.stdout.write(`${kleur.cyan("[gateway]")} ${d}`);
+    process.stdout.write(`${chip("GATEWAY", "cyan")} ${d}`);
   });
   child.stderr?.on("data", (d: Buffer) => {
-    process.stderr.write(`${kleur.cyan("[gateway]")} ${d}`);
+    process.stderr.write(`${chip("GATEWAY", "cyan")} ${d}`);
   });
 
   let childExited = false;
