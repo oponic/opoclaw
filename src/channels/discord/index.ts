@@ -738,6 +738,15 @@ export async function startDiscord(): Promise<void> {
         }
     });
 
-    await client.login(discordCfg.token);
+    try {
+        await client.login(discordCfg.token);
+    } catch (err: any) {
+        const message = String(err?.message || err || "");
+        if (message.includes("session_start_limit") || message.includes("reset_after")) {
+            throw new Error(
+                "Discord login failed while reading gateway information. Check that channel.discord.token is a valid bot token and that the bot can reach the Discord API."
+            );
+        }
+        throw err instanceof Error ? err : new Error(message || "Discord login failed.");
+    }
 }
-
