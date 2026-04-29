@@ -1,4 +1,4 @@
-import { getTools, getToolsFiltered, handleToolCall } from "./tools";
+import { getTools, getToolsFiltered, handleToolCallDefinition } from "./tools";
 import { defineTool, type ToolDefinition } from "./tools/types.ts";
 import { getActiveProvider, getModelId, type OpoclawConfig } from "./config.ts";
 import { recordUsage } from "./usage.ts";
@@ -238,10 +238,10 @@ export class AgentSession {
         );
         
         const result = await subagent.evaluate(systemPrompt, config, {}, {tools: [defineTool(
-            "dummy",
-            "This tool does nothing.", {}, [], {
-                handler: async ()=>{return "Nothing"}
-            }
+            "dummy_tool",
+            "This tool does nothing. As a subagent, you don't get access to any main agent tools.",
+            {}, [],
+            {handler: async ()=>{return ""}}
         )]});
         return (result.text || "").trim() || "(subagent returned no output)";
     }
@@ -347,6 +347,7 @@ export class AgentSession {
 
         let didRunTools = false;
         const maxIterations = options?.maxIterations ?? 20;
+        const agentTools = options?.tools ?? getTools(config);
 
         for (let iteration = 0; iteration < maxIterations; iteration++) {
             this.trimContextByChars();
@@ -356,7 +357,7 @@ export class AgentSession {
                 [systemMessage, ...this.messages],
                 config,
                 wrappedOnFirstToken,
-                options?.tools ?? getTools(config),
+                agentTools,
                 this.sessionId
             );
             const { text, toolCalls, usage, reasoning_details } = result;
@@ -379,6 +380,7 @@ export class AgentSession {
                     let toolResult: string;
                     const uniqueId = Math.random().toString(36).substring(2, 10);
                     try {
+                        const name = tc.function.name;
                         const args = JSON.parse(tc.function.arguments);
                         if (callbacks.onToolCall) {
                             callbacks.onToolCall(tc, uniqueId);
@@ -388,7 +390,13 @@ export class AgentSession {
                                 const handled = await callbacks.executeTool(tc, args);
                                 if (handled !== undefined) return handled;
                             }
-                            return await handleToolCall(tc.function.name, args, {
+                            
+                            const tool = agentTools.filter(x=>x.schema.function.name == name)[0];
+
+                            if(!tool) {
+                                return `Unknown tool: ${name}`;
+                            }
+                            return await handleToolCallDefinition(tool, args, {
                                 config,
                                 session: this,
                                 onDeepResearchSummary: callbacks.onDeepResearchSummary
