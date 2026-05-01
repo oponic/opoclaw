@@ -77,13 +77,11 @@ export interface OpoclawConfig {
     update_channel?: "stable" | "unstable";
     exposed_commands?: string[];
     enable_web_fetch?: boolean;
-    enable_webview?: boolean;
     tool_call_summaries?: "full" | "minimal" | "off";
     mounts?: Record<string, string>;
     search_provider?: "duckduckgo" | "tavily";
     tavily_api_key?: string;
     show_update_notification?: boolean;
-    chromium_path?: string;
 }
 
 export function loadConfig(): OpoclawConfig {
@@ -141,14 +139,4 @@ export function getVisionEnabled(config: OpoclawConfig): boolean {
 
 export function getExposedCommands(config: OpoclawConfig): string[] {
     return config.exposed_commands || [];
-}
-
-export function getChromiumPath(config: OpoclawConfig): string | undefined {
-    const configPath = config.chromium_path?.trim();
-    if (configPath) {
-        return configPath;
-    }
-
-    const envPath = process.env.BUN_CHROME_PATH?.trim();
-    return envPath || undefined;
 }
