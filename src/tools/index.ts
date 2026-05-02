@@ -51,6 +51,10 @@ export function getToolsFiltered(config: OpoclawConfig, exclude: ToolName[], inc
     })
 }
 
+export function getToolWithName(name: string): ToolDefinition | undefined {
+    return TOOL_DEFINITIONS[name as ToolName];   
+}
+
 export async function handleToolCall(
     name: string,
     args: ToolArgs,
@@ -63,6 +67,18 @@ export async function handleToolCall(
     }
     if (!definition.handler) {
         throw new Error(`Tool "${name}" is not handled locally.`);
+    }
+    return await definition.handler(args, context);
+}
+
+export async function handleToolCallDefinition(
+    definition: ToolDefinition,
+    args: ToolArgs,
+    context: ToolContext,
+): Promise<string> {
+    console.log(`Handling tool call: ${definition.schema.function.name} with args ${JSON.stringify(args)}`);
+    if (!definition.handler) {
+        throw new Error(`Tool "${definition.schema.function.name}" is not handled locally.`);
     }
     return await definition.handler(args, context);
 }
