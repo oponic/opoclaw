@@ -22,7 +22,7 @@ export const FILE_TOOLS = {
     ),
     edit_file: defineTool(
         "edit_file",
-        "Overwrite the contents of an existing file in the workspace. You cannot create new files or delete files - only edit files that already exist.",
+        "Overwrite the contents of an existing file in the workspace. If the file does not exist, it will be created.",
         {
             path: {
                 type: "string",

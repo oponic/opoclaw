@@ -58,7 +58,7 @@ export async function runCoreChatTurn(
         await setHibernating(false);
     }
 
-    session.addMessage({ role: "user", content: userText });
+    await session.addMessage({ role: "user", content: userText });
     const systemPrompt = await buildSystemPrompt(config, [], "terminal");
 
     const onToolCall = (call: ToolCall) => {

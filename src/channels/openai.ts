@@ -161,7 +161,7 @@ export async function handleOpenAIRequest(req: Request, config = loadConfig()): 
     const session = new AgentSession(`opoclaw-openai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
     for (const message of history) {
-        session.addMessage(message);
+        await session.addMessage(message);
     }
 
     const deniedApprovalMessage = "This tool requires interactive approval and is not available through the OpenAI channel.";

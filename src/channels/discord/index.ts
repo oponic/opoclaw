@@ -323,7 +323,7 @@ async function onMessage(client: Client, msg: Message) {
         session = new AgentSession(`opoclaw-discord-${client.user!.id}-${msg.channelId}-${Date.now()}`);
         channelSessions.set(msg.channelId, session);
         for (const m of await buildChannelHistory(client, msg)) {
-            session.addMessage(m);
+            await session.addMessage(m);
         }
     }
 
@@ -364,9 +364,6 @@ async function onMessage(client: Client, msg: Message) {
     const imageAttachments = visionEnabled
         ? Array.from(msg.attachments.values()).filter((a) => (a.contentType || "").startsWith("image/"))
         : [];
-
-    const formatted = await formatDiscordMessage(client, msg, imageAttachments.length > 0 ? imageAttachments : undefined);
-    if (formatted) session.addMessage(formatted);
 
     let swappedToThinking = false;
     let gotToolCall = false;
@@ -559,7 +556,9 @@ async function onMessage(client: Client, msg: Message) {
     };
 
     try {
-        const { text: responseText, reasoningSummary } = await session.evaluate(
+        const formatted = await formatDiscordMessage(client, msg, imageAttachments.length > 0 ? imageAttachments : undefined);
+        const { text: responseText, reasoningSummary } = await session.evaluatePrompt(
+            formatted,
             systemPrompt,
             config,
             {

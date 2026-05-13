@@ -130,6 +130,8 @@ export async function runDeepResearch(
     return `Deep Research Docs:\n\n${compiled}`;
 }
 
+export type AgentResponse = { text: string; reasoningSummary?: string; ranTools?: boolean };
+
 interface AgentCallbacks {
     onFirstToken?: () => void,
     onToolCall?: (call: ToolCall, uniqueId: string) => void,
@@ -137,7 +139,8 @@ interface AgentCallbacks {
     requestToolApproval?: (call: ToolCall, uniqueId: string) => Promise<{ approved: boolean; message?: string }>,
     onToolBatch?: (calls: ToolCall[], results: ToolResult[], sessionId: string) => Promise<void>,
     onDeepResearchSummary?: (summary: string) => Promise<void>,
-    executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>
+    executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>,
+    onAgentComplete?: (result: AgentResponse) => void,
 }
 
 export type BackgroundSubagentJob = {
@@ -149,6 +152,10 @@ export type BackgroundSubagentJob = {
     injected?: boolean;
 };
 
+type ContextQueueItem = { kind: "context"; msg: Message; resolve: () => void };
+type PromptQueueItem = { kind: "prompt"; systemPrompt: string; config: OpoclawConfig; callbacks: AgentCallbacks; options?: { maxIterations?: number; tools?: ToolDefinition[] }; resolve: (r: AgentResponse) => void; reject: (e: unknown) => void };
+type QueueItem = ContextQueueItem | PromptQueueItem;
+
 export class AgentSession {
     sessionId: string;
     messages: Message[];
@@ -156,6 +163,8 @@ export class AgentSession {
     pendingFileSend: { path: string; caption: string } | null = null;
     isSubagent: boolean = false;
     private backgroundJobs = new Map<string, BackgroundSubagentJob>();
+    private inputQueue: QueueItem[] = [];
+    private isProcessing = false;
 
     constructor(sessionId: string, isSubagent?: boolean) {
         this.sessionId = sessionId;
@@ -198,9 +207,61 @@ export class AgentSession {
         return runDeepResearch(query, config, onSearchSummary, `${this.sessionId}-deepresearch-${Date.now()}`);
     }
 
-    addMessage(msg: Message): void {
-        this.messages.push(msg);
-        this.trimContextByChars();
+    addMessage(msg: Message): Promise<void> {
+        return new Promise<void>((resolve) => {
+            this.inputQueue.push({ kind: "context", msg, resolve });
+            this.processQueue();
+        });
+    }
+
+    evaluate(
+        systemPrompt: string,
+        config: OpoclawConfig,
+        callbacks: AgentCallbacks,
+        options?: { maxIterations?: number; tools?: ToolDefinition[] }
+    ): Promise<AgentResponse> {
+        return new Promise((resolve, reject) => {
+            this.inputQueue.push({ kind: "prompt", systemPrompt, config, callbacks, options, resolve, reject });
+            this.processQueue();
+        });
+    }
+
+    evaluatePrompt(
+        msg: Message | null,
+        systemPrompt: string,
+        config: OpoclawConfig,
+        callbacks: AgentCallbacks,
+        options?: { maxIterations?: number; tools?: ToolDefinition[] }
+    ): Promise<AgentResponse> {
+        return new Promise((resolve, reject) => {
+            if(msg) { this.inputQueue.push({ kind: "context", msg, resolve: (()=>{})});}
+            this.inputQueue.push({ kind: "prompt", systemPrompt, config, callbacks, options, resolve, reject });
+            this.processQueue();
+        });
+    }
+
+
+    private processQueue(): void {
+        if (this.isProcessing) return;
+        this._drainQueue();
+    }
+
+    private _drainQueue(): void {
+        this.isProcessing = true;
+        while (this.inputQueue.length > 0 && this.inputQueue[0]!.kind === "context") {
+            const item = this.inputQueue.shift() as ContextQueueItem;
+            this.messages.push(item.msg);
+            this.trimContextByChars();
+            item.resolve();
+        }
+        if (this.inputQueue.length === 0) {
+            this.isProcessing = false;
+            return;
+        }
+        const item = this.inputQueue.shift() as PromptQueueItem;
+        this._evaluate(item.systemPrompt, item.config, item.callbacks, item.options)
+            .then((result) => { this.isProcessing = false; item.resolve(result); this._drainQueue(); })
+            .catch((err)  => { this.isProcessing = false; item.reject(err);   this._drainQueue(); });
     }
 
     serializeMessagesForPrompt(messages: Message[]): string {
@@ -253,7 +314,7 @@ export class AgentSession {
             const outcome = job.status === "done"
                 ? (job.output || "(no output)")
                 : `Error: ${job.output || "background subagent failed."}`;
-            this.addMessage({
+            this.messages.push({
                 role: "user",
                 content:
                     `Background subagent completed (${job.label}).\n` +
@@ -261,6 +322,7 @@ export class AgentSession {
                     `Result:\n${outcome}\n\n` +
                     "Please continue using this result.",
             });
+            this.trimContextByChars();
             job.injected = true;
             injected = true;
         }
@@ -326,12 +388,12 @@ export class AgentSession {
         }
     }
 
-    async evaluate(
+    private async _evaluate(
         systemPrompt: string,
         config: OpoclawConfig,
         callbacks: AgentCallbacks,
         options?: { maxIterations?: number; tools?: ToolDefinition[] }
-    ): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
+    ): Promise<AgentResponse> {
         this.currentSystemPrompt = systemPrompt;
         const systemMessage: Message = { role: "system", content: systemPrompt };
 
@@ -455,12 +517,16 @@ export class AgentSession {
 
             this.injectBackgroundResultsIntoContext();
 
-            return { text: responseText, reasoningSummary: reasoningSummaryText, ranTools: didRunTools };
+            const successResult = { text: responseText, reasoningSummary: reasoningSummaryText, ranTools: didRunTools };
+            if (callbacks.onAgentComplete) callbacks.onAgentComplete(successResult);
+            return successResult;
         }
 
         const fallback = "(agent loop limit reached)";
         this.messages.push({ role: "assistant", content: fallback });
-        return { text: fallback };
+        const fallbackResult = { text: fallback };
+        if (callbacks.onAgentComplete) callbacks.onAgentComplete(fallbackResult);
+        return fallbackResult;
     }
 }
 
@@ -470,7 +536,7 @@ export async function runAgent(
     config: OpoclawConfig,
     callbacks: AgentCallbacks,
     sessionId: string
-): Promise<{ text: string; reasoningSummary?: string; ranTools?: boolean }> {
+): Promise<AgentResponse> {
     const session = new AgentSession(sessionId);
     session.messages = [...history];
     return session.evaluate(systemPrompt, config, callbacks);
