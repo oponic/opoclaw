@@ -13,6 +13,7 @@ import {
   getExposedCommands,
   getSemanticSearchEnabled,
   useTomlFiles,
+  getChromiumPath,
 } from "../src/config.ts";
 
 async function withTempConfig(contents: string, fn: (path: string) => Promise<void>) {
@@ -74,5 +75,21 @@ describe("config TOML", () => {
   test("feature toggles default to false", () => {
     expect(getSemanticSearchEnabled({} as any)).toBe(false);
     expect(useTomlFiles({} as any)).toBe(false);
+  });
+
+  test("getChromiumPath prefers config over env", () => {
+    const original = process.env.BUN_CHROME_PATH;
+    process.env.BUN_CHROME_PATH = "C:/env/chrome.exe";
+
+    try {
+      expect(getChromiumPath({ chromium_path: "C:/config/chrome.exe" } as any)).toBe("C:/config/chrome.exe");
+      expect(getChromiumPath({} as any)).toBe("C:/env/chrome.exe");
+    } finally {
+      if (original === undefined) {
+        delete process.env.BUN_CHROME_PATH;
+      } else {
+        process.env.BUN_CHROME_PATH = original;
+      }
+    }
   });
 });

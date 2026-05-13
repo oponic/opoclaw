@@ -5,7 +5,7 @@ import { getChromiumPath, type OpoclawConfig } from "../config.ts";
 const WEBVIEW_INSTANCES = new Map<string, Bun.WebView>();
 let NEXT_WEBVIEW_ID = 1;
 
-const isWebViewEnabled = (config: OpoclawConfig) => {
+const isWebViewEnabled = (config: { enable_webview?: boolean }) => {
     // Check if WebView is enabled AND we're not on a Windows system with broken Chrome spawning
     const enabled = config.enable_webview ?? false;
     if (!enabled) return false;

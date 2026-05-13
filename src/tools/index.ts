@@ -7,6 +7,7 @@ import { INFO_TOOLS } from "./info-tools.ts";
 import { DISCORD_TOOLS } from "./discord-tools.ts";
 import { SHELL_TOOLS } from "./shell-tool.ts";
 import { WEBVIEW_TOOLS } from "./webview-tools.ts";
+
 import type { ToolArgs, ToolContext, ToolDefinition } from "./types.ts";
 import type { OpoclawConfig } from "../config.ts";
 
