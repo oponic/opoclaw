@@ -4,7 +4,7 @@ opoclaw light is a branch of opoclaw made to be extremely lightweight; cutting o
 |-----------------------|----------------------|------------|------------|----------|
 | Language              | **TypeScript** | TypeScript | TypeScript | TypeScript       |
 | RAM                   | **51 MB**           | <100 MB      | <1 GB    | <500 MB   |
-| Startup (0.8GHz core) | **0.8s**              | 1.5s      | <30s       | <1s      |
+| Startup (0.8GHz core) | **0.8s**              | 1.5s      | <30s       | <15s      |
 ## Getting Started
 opoclaw light only runs on Linux.
 
