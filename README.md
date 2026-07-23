@@ -16,7 +16,7 @@ Make sure you have Bun installed.
 
 Set up opoclaw services:
 
-`bun . install; bun . service install; source ~/.bashrc` (or ~/.zshrc)
+`bun . install; source ~/.bashrc` (or ~/.zshrc)
 
 Finally, you can begin onboarding, and finish up the setup.
 
