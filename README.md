@@ -1,10 +1,10 @@
 # opoclaw [light]
 opoclaw light is a branch of opoclaw made to be extremely lightweight; cutting out multiple features in favor of lower CPU and RAM usage.
-|                       | **Opoclaw**          | OpenClaw   | NanoClaw   | PicoClaw |
+|                       | **Opoclaw [light]**          | Opoclaw   | OpenClaw   | NanoClaw |
 |-----------------------|----------------------|------------|------------|----------|
-| Language              | **Bun (TypeScript)** | TypeScript | TypeScript | Go       |
-| RAM                   | **<32 MB**           | <1 GB      | <500 MB    | <10 MB   |
-| Startup (0.8GHz core) | **<1s**              | <500s      | <30s       | <1s      |
+| Language              | **TypeScript** | TypeScript | TypeScript | TypeScript       |
+| RAM                   | **51 MB**           | <100 MB      | <1 GB    | <500 MB   |
+| Startup (0.8GHz core) | **0.8s**              | 1.5s      | <30s       | <15s      |
 ## Getting Started
 opoclaw light only runs on Linux.
 
@@ -16,7 +16,7 @@ Make sure you have Bun installed.
 
 Set up opoclaw services:
 
-`bun . install; bun . service install; source ~/.bashrc` (or ~/.zshrc)
+`bun . install; source ~/.bashrc` (or ~/.zshrc)
 
 Finally, you can begin onboarding, and finish up the setup.
 
