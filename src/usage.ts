@@ -15,17 +15,10 @@ export interface UsageStats {
     }>;
 }
 
-function normalizeWindowsPath(p: string): string {
-    if (process.platform === "win32" && /^\/[A-Za-z]:\//.test(p)) {
-        return p.slice(1);
-    }
-    return p;
-}
-
 function getUsageFilePath(): string {
-    const rawPath = normalizeWindowsPath(fileURLToPath(new URL("../usage.json", import.meta.url)));
+    const rawPath = fileURLToPath(new URL("../usage.json", import.meta.url));
     const dir = dirname(rawPath);
-    if (dir === "/" || /^[A-Za-z]:\\$/.test(dir) || dir === ".") {
+    if (dir === "/" || dir === ".") {
         return join(dirname(rawPath), "data", "usage.json");
     }
     return rawPath;

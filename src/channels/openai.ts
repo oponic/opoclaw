@@ -1,7 +1,7 @@
 import { AgentSession, type Message as AgentMessage, type ToolCall } from "../agent.ts";
 import { getModelId, getVideoEnabled, getVisionEnabled, loadConfig, type OpoclawConfig } from "../config.ts";
 import { requiresToolApproval } from "../tools/index.ts";
-import { buildSystemPrompt } from "./shared.ts";
+import { buildSystemPrompt, json, sse } from "./shared.ts";
 
 type OpenAIContentPart =
     | { type: "text"; text?: string }
@@ -26,24 +26,6 @@ function getBearerToken(req: Request): string {
     const auth = req.headers.get("authorization") || "";
     const match = auth.match(/^Bearer\s+(.+)$/i);
     return match?.[1]?.trim() || "";
-}
-
-function json(data: unknown, status = 200): Response {
-    return new Response(JSON.stringify(data), {
-        status,
-        headers: { "content-type": "application/json" },
-    });
-}
-
-function sse(data: string, status = 200): Response {
-    return new Response(data, {
-        status,
-        headers: {
-            "content-type": "text/event-stream",
-            "cache-control": "no-cache",
-            connection: "keep-alive",
-        },
-    });
 }
 
 function toAgentContent(content: OpenAIMessage["content"], visionEnabled: boolean, videoEnabled: boolean): AgentMessage["content"] {

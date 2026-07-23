@@ -24,17 +24,9 @@ const WORKSPACE_DIR = resolve(OP_DIR, "workspace");
 const LOG_FILE = resolve(OP_DIR, "logs/gateway.log");
 const BIN_DIR = `${homedir()}/.local/bin`;
 const OPCLAW_BIN = `${BIN_DIR}/opoclaw`;
-const OPCLAW_BIN_WIN = `${BIN_DIR}/opoclaw.cmd`;
 const LOCK_FILE = resolve(OP_DIR, ".gateway.lock");
 const HIBERNATE_FILE = resolve(OP_DIR, ".gateway.hibernate");
 const CORE_URL = "http://127.0.0.1:6112";
-
-// macOS plist
-const PLIST_NAME = "com.oponic.opoclaw.plist";
-const PLIST_PATH_LA = `${homedir()}/Library/LaunchAgents/${PLIST_NAME}`;
-// Linux systemd
-const SYSTEMD_NAME = "opoclaw.service";
-const SYSTEMD_PATH = `/etc/systemd/system/${SYSTEMD_NAME}`;
 
 // ── Colors ─────────────────────────────────────────────────────────────────
 
@@ -67,26 +59,6 @@ const banner = () => (
   kleur.magenta("  █████") + kleur.dim().bold("  ▀▄▄▀ █▄▄▀ ▀▄▄▀ ") + kleur.bold("▀▄▄▄ █▄ ████ ▀▄▀▄▀\n") +
   kleur.magenta("   ▀▀▀ ") + kleur.dim().bold("       █")
 );
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function getOS(): "macos" | "linux" | "windows" {
-  const p = process.platform;
-  if (p === "darwin") return "macos";
-  if (p === "win32") return "windows";
-  return "linux";
-}
-
-// Run a command with the terminal's stdio inherited so interactive prompts —
-// notably sudo's password prompt — reach the user. The piped `exec` helper
-// swallows the TTY, which makes sudo fail with "no tty present". Throws on a
-// non-zero exit so callers can surface the failure.
-function execInteractive(cmd: string, args: string[]): void {
-  const r = spawnSync(cmd, args, { stdio: "inherit" });
-  if (r.error) throw r.error;
-  if (r.status !== 0) throw new Error(`${cmd} exited with code ${r.status}`);
-}
-
 
 // ── Usage ──────────────────────────────────────────────────────────────────
 
@@ -246,8 +218,7 @@ async function gatewayStart() {
   info("Starting gateway...");
 
   // Use the running bun binary (process.execPath) rather than the bare string
-  // "bun" — on Windows, child_process.spawn does no PATH/PATHEXT resolution and
-  // would throw ENOENT for "bun".
+  // "bun" so spawn resolves the executable reliably.
   const child = spawn(process.execPath, ["run", "src/index.ts"], {
     cwd: OP_DIR,
     stdio: ["ignore", "pipe", "pipe"],
@@ -479,392 +450,36 @@ async function chatTui() {
   }
 }
 
-// ── Service Installation ───────────────────────────────────────────────────
-
-function installService() {
-  const os = getOS();
-  info(`Installing ${os} service...`);
-
-  switch (os) {
-    case "macos": {
-      // ProgramArguments must be the long-running gateway itself. Running
-      // `opoclaw gateway start` forks a detached child and exits — with
-      // KeepAlive=true launchd would then relaunch it in a tight loop, spawning
-      // orphaned gateways. Run src/index.ts in the foreground with the absolute
-      // bun binary, and put its directory on PATH so bun/git resolve.
-      const bunBin = process.execPath;
-      const bunDir = dirname(bunBin);
-      const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.oponic.opoclaw</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${bunBin}</string>
-        <string>run</string>
-        <string>${OP_DIR}/src/index.ts</string>
-    </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>${bunDir}:/usr/local/bin:/usr/bin:/bin</string>
-    </dict>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>${OP_DIR}</string>
-</dict>
-</plist>`;
-      mkdirSync(`${OP_DIR}/logs`, { recursive: true });
-      writeFileSync(PLIST_PATH_LA, plist);
-      exec(`launchctl load ${PLIST_PATH_LA}`);
-      ok(`macOS service installed.`);
-      console.log(`${chip("MANAGE", "green")}`);
-      console.log(`  ${cmdStyle("launchctl start/com.oponic.opoclaw")}`);
-      console.log(`  ${cmdStyle("launchctl stop/com.oponic.opoclaw")}`);
-      break;
-    }
-    case "linux": {
-      // The service must run as the human user, not root — when this command is
-      // run via sudo, whoami/homedir report root, so prefer SUDO_USER.
-      const svcUser = process.env.SUDO_USER || exec("whoami");
-      let svcHome = homedir();
-      if (process.env.SUDO_USER) {
-        try {
-          const pw = exec(`getent passwd ${svcUser}`);
-          svcHome = pw.split(":")[5] || `/home/${svcUser}`;
-        } catch {
-          svcHome = `/home/${svcUser}`;
-        }
-      }
-
-      // ExecStart must be the long-running gateway process itself. The old unit
-      // ran `opoclaw gateway start`, which forks a detached child and exits —
-      // systemd (Type=simple) then treats the service as dead and tears down the
-      // cgroup, killing the gateway. Run src/index.ts in the foreground instead.
-      // Use the absolute bun binary and put its directory on PATH, since
-      // systemd's default PATH does not include ~/.bun/bin.
-      const bunBin = process.execPath;
-      const bunDir = dirname(bunBin);
-      const servicePath = `${bunDir}:/usr/local/bin:/usr/bin:/bin`;
-
-      const unit = `[Unit]
-Description=opoclaw AI Gateway
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=${svcUser}
-WorkingDirectory=${OP_DIR}
-Environment=HOME=${svcHome}
-Environment=PATH=${servicePath}
-ExecStart=${bunBin} run ${OP_DIR}/src/index.ts
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target`;
-
-      mkdirSync(`${OP_DIR}/logs`, { recursive: true });
-      // The daemon runs as svcUser, so it must own the log dir it appends to.
-      try { exec(`chown -R ${svcUser} ${OP_DIR}/logs`); } catch {}
-
-      // /etc/systemd/system is root-owned — writeFileSync there fails with EACCES
-      // for a normal user. Stage the unit in the project dir, then install it with
-      // sudo. `sudo` will prompt for a password if the user lacks a cached grant.
-      const stagedUnit = resolve(OP_DIR, SYSTEMD_NAME);
-      writeFileSync(stagedUnit, unit);
-      try {
-        execInteractive("sudo", ["install", "-m", "644", stagedUnit, SYSTEMD_PATH]);
-      } finally {
-        try { unlinkSync(stagedUnit); } catch {}
-      }
-      execInteractive("sudo", ["systemctl", "daemon-reload"]);
-      execInteractive("sudo", ["systemctl", "enable", "opoclaw.service"]);
-      execInteractive("sudo", ["systemctl", "start", "opoclaw.service"]);
-      ok("Linux systemd service installed and started");
-      console.log(`${chip("MANAGE", "green")}`);
-      console.log(`  ${cmdStyle("systemctl status opoclaw")}`);
-      console.log(`  ${cmdStyle("sudo systemctl stop opoclaw")}`);
-      console.log(`  ${cmdStyle("journalctl -u opoclaw -f")}`);
-      break;
-    }
-    case "windows": {
-      warn("Windows service: create manually with NSSM or sc.exe.");
-      console.log(`${chip("WINDOWS SERVICE", "yellow")}`);
-      console.log(`  ${cmdStyle(`nssm install opoclaw "${OPCLAW_BIN}" gateway start`)}`);
-      console.log(`  ${cmdStyle(`sc create opoclaw binPath="${OPCLAW_BIN} gateway start"`)}`);
-      break;
-    }
-  }
-}
-
-function uninstallService() {
-  const os = getOS();
-  info(`Removing ${os} service...`);
-
-  switch (os) {
-    case "macos": {
-      try {
-        exec(`launchctl unload ${PLIST_PATH_LA} 2>/dev/null || true`);
-        unlinkSync(PLIST_PATH_LA);
-        ok("macOS service removed");
-      } catch { warn("No service found"); }
-      break;
-    }
-    case "linux": {
-      try {
-        // Inherit stdio so sudo can prompt for a password if needed. Stop/disable
-        // may fail if the unit isn't present; that's fine, so ignore their status.
-        try { execInteractive("sudo", ["systemctl", "stop", "opoclaw.service"]); } catch {}
-        try { execInteractive("sudo", ["systemctl", "disable", "opoclaw.service"]); } catch {}
-        execInteractive("sudo", ["rm", "-f", SYSTEMD_PATH]);
-        execInteractive("sudo", ["systemctl", "daemon-reload"]);
-        ok("Linux service removed");
-      } catch { warn("No service found"); }
-      break;
-    }
-    case "windows": {
-      try {
-        exec("nssm remove opoclaw confirm 2>nul || true");
-        exec("sc delete opoclaw 2>nul || true");
-        ok("Windows service removed");
-      } catch { warn("No service found"); }
-      break;
-    }
-  }
-}
-
 function uninstall() {
   info("Uninstalling opoclaw...");
   gatewayStop();
-  uninstallService();
-  // Remove symlink
+  // Remove the command wrapper
   try { unlinkSync(OPCLAW_BIN); } catch {}
-  try { unlinkSync(OPCLAW_BIN_WIN); } catch {}
   ok("opoclaw uninstalled.");
   console.log(`\n${chip("DATA", "red")}`);
   console.log(`  ${value("To remove all data, delete:")} ${cmdStyle(OP_DIR)}`);
   console.log(`  ${subtle("(config.toml, workspace, and usage data will be lost)")}\n`);
 }
 
-// ── Install Command (create symlink + service) ─────────────────────────────
+// ── Install Command (create wrapper) ───────────────────────────────────────
 
 function installCommand() {
   info("Installing opoclaw command...");
   mkdirSync(BIN_DIR, { recursive: true });
 
-  if (getOS() === "windows") {
-    const wrapper = `@echo off\r\nbun run \"${resolve(import.meta.dir, "cli.ts")}\" %*\r\n`;
-    writeFileSync(OPCLAW_BIN_WIN, wrapper);
-    ok(`opoclaw command installed to ${OPCLAW_BIN_WIN}`);
-  } else {
-    // Create wrapper script
-    const wrapper = `#!/bin/bash\nbun run \"${resolve(import.meta.dir, "cli.ts")}\" \"$@\"\n`;
-    writeFileSync(OPCLAW_BIN, wrapper);
-    exec(`chmod +x ${OPCLAW_BIN}`);
-    ok(`opoclaw command installed to ${OPCLAW_BIN}`);
-  }
+  const wrapper = `#!/bin/bash\nbun run \"${resolve(import.meta.dir, "cli.ts")}\" \"$@\"\n`;
+  writeFileSync(OPCLAW_BIN, wrapper);
+  exec(`chmod +x ${OPCLAW_BIN}`);
+  ok(`opoclaw command installed to ${OPCLAW_BIN}`);
 
   // Check PATH
   const path = process.env.PATH || "";
   if (!path.includes(BIN_DIR)) {
     warn(`${BIN_DIR} is not in your PATH.`);
     console.log(`${chip("PATH", "yellow")}`);
-    if (getOS() === "windows") {
-      console.log(`  ${value("Add")} ${cmdStyle(BIN_DIR)} ${value("to your PATH environment variable.")}`);
-    } else {
-      console.log(`  ${value("Add to .zshrc / .bashrc:")}`);
-      console.log(`  ${cmdStyle(`export PATH="${BIN_DIR}:$PATH"` )}`);
-    }
+    console.log(`  ${value("Add to .zshrc / .bashrc:")}`);
+    console.log(`  ${cmdStyle(`export PATH="${BIN_DIR}:$PATH"` )}`);
   }
-
-  // Install auto-start service
-  const ans = process.argv[3];
-  if (ans === "--service" || ans === "--daemon") {
-    installService();
-  }
-}
-
-// ── Migrate ─────────────────────────────────────────────────────────────────
-
-function migrate() {
-  const jsonPath = resolve(OP_DIR, "config.json");
-  const tomlPath = resolve(OP_DIR, "config.toml");
-
-  if (!existsSync(jsonPath)) {
-    warn("No config.json found — nothing to migrate.");
-    return;
-  }
-
-  if (existsSync(tomlPath)) {
-    warn("config.toml already exists.");
-    const backupPath = jsonPath + ".bak";
-    writeFileSync(backupPath, readFileSync(jsonPath));
-    ok("Backed up config.json → config.json.bak");
-    return;
-  }
-
-  info("Reading config.json...");
-  const jsonConfig = JSON.parse(readFileSync(jsonPath, "utf-8"));
-
-  info("Converting to TOML...");
-  let toml = "";
-  for (const [key, value] of Object.entries(jsonConfig)) {
-    toml += `${key} = ${formatTOMLValue(value)}\n`;
-  }
-
-  writeFileSync(tomlPath, toml);
-  ok(`Wrote config.toml`);
-
-  // Move old config
-  const backupPath = jsonPath + ".bak";
-  writeFileSync(backupPath, readFileSync(jsonPath));
-  unlinkSync(jsonPath);
-  ok("config.json backed up → config.json.bak and removed");
-
-  console.log(`\n${chip("MIGRATION", "cyan")}`);
-  console.log(`  ${value("Your config is now at:")} ${cmdStyle(tomlPath)}`);
-  console.log(`  ${value("Old config backed up at:")} ${cmdStyle(backupPath)}\n`);
-}
-
-// ── less_verbose_tools → tool_call_summaries migration ────────────────────
-
-function migrateLessVerboseTools() {
-  const tomlPath = resolve(OP_DIR, "config.toml");
-  if (!existsSync(tomlPath)) return;
-
-  const raw = readFileSync(tomlPath, "utf-8");
-  const parsed = parseTOML(raw);
-
-  const hasLessVerbose = "less_verbose_tools" in parsed;
-  if (!hasLessVerbose) {
-    return;
-  }
-
-  const value = parsed.less_verbose_tools;
-  const next: any = { ...parsed };
-  delete next.less_verbose_tools;
-
-  if (value === true) {
-    next.tool_call_summaries = "minimal";
-    info(`less_verbose_tools = true → tool_call_summaries = "minimal"`);
-  } else {
-    // false or absent: "full" is the default, so just drop the key
-    info(`less_verbose_tools = false → removed (default is "full")`);
-  }
-
-  const backupPath = tomlPath + ".bak";
-  writeFileSync(backupPath, raw);
-  writeFileSync(tomlPath, toTOML(next));
-  ok(`Migrated less_verbose_tools → tool_call_summaries. Backup at config.toml.bak`);
-}
-
-// ── CamelCase → snake_case migration ──────────────────────────────────────
-
-const CAMEL_TO_SNAKE: Record<string, string> = {
-  discordToken: "discord_token",
-  openrouterKey: "openrouter_key",
-  openrouterModel: "openrouter_model",
-  allowBots: "allow_bots",
-  enableReasoning: "enable_reasoning",
-  reasoningSummary: "reasoning_summary",
-  reasoningSummaryModel: "reasoning_summary_model",
-  notifyChannel: "notify_channel",
-};
-
-function migrateToSnakeCase() {
-  const tomlPath = resolve(OP_DIR, "config.toml");
-  if (!existsSync(tomlPath)) {
-    warn("No config.toml found — nothing to migrate.");
-    return;
-  }
-
-  let text = readFileSync(tomlPath, "utf-8");
-  let changed = false;
-
-  for (const [camel, snake] of Object.entries(CAMEL_TO_SNAKE)) {
-    const regex = new RegExp(`^\\s*${camel}(\\s*=)`, "gm");
-    if (regex.test(text)) {
-      text = text.replace(regex, `${snake}$1`);
-      changed = true;
-      info(`  ${camel} → ${snake}`);
-    }
-  }
-
-  if (!changed) {
-    ok("Config.toml already uses snake_case keys.");
-    return;
-  }
-
-  const backupPath = tomlPath + ".bak";
-  writeFileSync(backupPath, readFileSync(tomlPath));
-  writeFileSync(tomlPath, text);
-  ok("Migrated camelCase → snake_case. Backup at config.toml.bak");
-}
-
-function migrateToSectionedConfig() {
-  const tomlPath = resolve(OP_DIR, "config.toml");
-  if (!existsSync(tomlPath)) {
-    warn("No config.toml found — nothing to migrate.");
-    return;
-  }
-
-  const raw = readFileSync(tomlPath, "utf-8");
-  const parsed = parseTOML(raw);
-
-  const alreadySectioned =
-    typeof parsed?.channel === "object" ||
-    typeof parsed?.provider === "object";
-  if (alreadySectioned) {
-    ok("Config.toml already uses sectioned channel/provider layout.");
-    return;
-  }
-
-  const next: any = { ...parsed };
-
-  const discordToken = parsed.discord_token;
-  const allowBots = parsed.allow_bots;
-  const notifyChannel = parsed.notify_channel;
-
-  const providerActive = parsed.provider || "openrouter";
-
-  next.channel = next.channel || {};
-  next.channel.discord = {
-    enabled: true,
-    token: discordToken,
-    allow_bots: allowBots,
-    notify_channel: notifyChannel,
-  };
-
-  next.provider = {
-    active: providerActive,
-    openrouter: {
-      api_key: parsed.openrouter_key,
-      model: parsed.openrouter_model,
-    },
-    ollama: parsed.ollama,
-    custom: parsed.custom,
-  };
-
-  // Remove old flat keys
-  delete next.discord_token;
-  delete next.allow_bots;
-  delete next.notify_channel;
-  delete next.openrouter_key;
-  delete next.openrouter_model;
-  delete next.ollama;
-  delete next.custom;
-
-  const backupPath = tomlPath + ".sectioned.bak";
-  writeFileSync(backupPath, raw);
-  writeFileSync(tomlPath, toTOML(next));
-  ok("Migrated to sectioned [channel.*] and [provider.*]. Backup at config.toml.sectioned.bak");
 }
 
 // ── Config Reference ─────────────────────────────────────────────────────────
@@ -894,23 +509,11 @@ const CONFIG_REFERENCE: ConfigGroup[] = [
       { key: "provider.openrouter.vision", type: "boolean", def: "false", desc: "Send image attachments to the model" },
       { key: "provider.openrouter.video", type: "boolean", def: "false", desc: "Send video attachments to the model" },
       { key: "provider.openrouter.use_session_ids", type: "boolean", def: "true", desc: "Include session IDs in requests" },
-      { key: "provider.openrouter.use_proxy", type: "boolean", def: "false", desc: "Route OpenRouter via bundled orproxy (unlocks options below)" },
-      { key: "provider.openrouter.proxy_port", type: "number", def: "3001", desc: "Local port for the orproxy server" },
-      { key: "provider.openrouter.quantization", type: "int4|int8|fp4|fp6|fp8|fp16|bf16|fp32", def: "—", desc: "Lock provider quantization (proxy)" },
-      { key: "provider.openrouter.reasoning_effort", type: "low|medium|high|<n>|off", def: "—", desc: "Reasoning effort, token budget, or off (proxy)" },
-      { key: "provider.openrouter.cache", type: "off|5m|1h", def: "off", desc: "Add prompt cache breakpoints, esp. Anthropic (proxy)" },
-      { key: "provider.openrouter.zdr", type: "boolean", def: "false", desc: "Require a Zero-Data-Retention provider (proxy)" },
-      { key: "provider.openrouter.strict", type: "boolean", def: "false", desc: "Disable provider fallbacks (proxy)" },
-      { key: "provider.openrouter.service_tier", type: "string", def: "—", desc: "OpenRouter service tier, e.g. flex (proxy)" },
-      { key: "provider.openrouter.providers", type: "string[]", def: "[]", desc: "Preferred provider slugs, in order (proxy)" },
       { key: "provider.ollama.base_url", type: "string", def: "http://localhost:11434", desc: "Ollama server URL" },
       { key: "provider.ollama.model", type: "string", def: "llama3.2", desc: "Ollama model name" },
-      { key: "provider.custom.base_url", type: "string", def: "—", desc: "Custom endpoint base URL" },
+      { key: "provider.custom.base_url", type: "string", def: "—", desc: "Custom OpenAI-compatible endpoint base URL" },
       { key: "provider.custom.api_key", type: "string", def: "—", desc: "Custom endpoint API key" },
       { key: "provider.custom.model", type: "string", def: "—", desc: "Custom model name" },
-      { key: "provider.custom.api_type", type: "openai|anthropic", def: "openai", desc: "Wire format of the custom endpoint" },
-      { key: "provider.custom.anthropic_version", type: "string", def: "2023-06-01", desc: "anthropic-version header (anthropic only)" },
-      { key: "provider.custom.max_tokens", type: "number", def: "1024", desc: "Max output tokens (anthropic only)" },
       { key: "provider.custom.vision", type: "boolean", def: "false", desc: "Send image attachments to the model" },
       { key: "provider.custom.video", type: "boolean", def: "false", desc: "Send video attachments to the model" },
     ],
@@ -1061,20 +664,6 @@ async function main() {
       uninstall();
       break;
 
-    case "service":
-      const svcCmd = args[1];
-      if (svcCmd === "install") installService();
-      else if (svcCmd === "remove") uninstallService();
-      else console.log(`${label("Usage:")} ${cmdStyle("opoclaw service {install|remove}")}`);
-      break;
-
-    case "migrate":
-      migrate();
-      migrateToSnakeCase();
-      migrateToSectionedConfig();
-      migrateLessVerboseTools();
-      break;
-
     case "onboard": {
       // Run interactively — the wizard prompts via readline, so it needs the
       // real stdio inherited (exec() pipes stdio and the prompts would hang).
@@ -1092,60 +681,6 @@ async function main() {
       } catch {
         console.log(`${chip("VERSION", "yellow")} ${subtle("opoclaw (unknown version — no git tags found)")}`);
       }
-      break;
-
-    case "explainer":
-    case "explain":
-      console.log(`
-${chip("EXPLAINER", "blue")}
-
-${value("opoclaw is a Discord bot framework. When someone mentions the bot:")}
-
-${label("1.")} ${kleur.bold("Message received")} — Discord event triggers the MessageCreate handler.
-   Only messages that @mention the bot (or reply to it) are processed.
-   Own messages are always ignored. Other bots are ignored unless
-   channel.discord.allow_bots=true in config.toml.
-
-${label("2.")} ${kleur.bold("System prompt loaded")} — Three workspace files are read and composed:
-   - SOUL.md — personality, tone, rules, vibe
-   - IDENTITY.md — name, appearance, self-description
-   - AGENTS.md — operating instructions, memory system, safety rules
-   These form the system prompt sent to the LLM.
-
-${label("3.")} ${kleur.bold("Channel history")} — Last 50 messages in the channel are fetched,
-   formatted as [name]: content, and sent as conversation context.
-
-${label("4.")} ${kleur.bold("LLM call")} — The composed prompt + history is sent to the configured
-   provider (OpenRouter, Ollama, or custom endpoint). The model generates
-   a response. If reasoning is enabled, the model's thinking tokens are
-   captured during streaming.
-
-${label("5.")} ${kleur.bold("Tools")} — The model can request tool calls (file operations, etc.).
-   Tools execute in a loop (max 20 iterations) until the model stops
-   requesting them or sends a final text response.
-
-${label("6.")} ${kleur.bold("Response sent")} — The reply is sent back to Discord, split into
-   chunks if over 1990 characters.
-
-${chip("SECURITY", "red")}
-
-- ${label("No data exfiltration")} — workspace files (SOUL, IDENTITY, AGENTS,
-  MEMORY) are sent to the LLM provider as part of the prompt. Do not
-  put secrets in these files.
-- ${label("Token safety")} — Discord token and API keys live in config.toml,
-  never sent to the LLM or exposed in responses.
-- ${label("Tool sandboxing")} — file tools only read from the workspace directory.
-  The send_file tool reads workspace files and attaches them to messages.
-- ${label("No system commands")} — the bot cannot run shell commands or access
-  your filesystem outside the workspace.
-- ${label("Rate limiting")} — max 20 agent iterations per message prevents
-  runaway loops.
-
-${chip("CONFIG", "cyan")}
-${value("config.toml lives at the project root. Onboard wizard:")} ${cmdStyle("opoclaw onboard")}.
-${value("Channels live under")} ${subtle("[channel.*]")}. ${value("Providers live under")} ${subtle("[provider.*]")}.
-${value("Toggle:")} ${subtle("channel.discord.allow_bots, enable_reasoning, reasoning_summary")}.
-`);
       break;
 
     case "chat":
@@ -1190,12 +725,8 @@ ${chip("COMMANDS", "magenta")}
   ${cmdStyle("chat")}               ${subtle("Start interactive terminal chat (Core channel)")}
   ${cmdStyle("logs [-f] [-n N]")}   ${subtle("Show gateway logs (--follow to tail, -n for line count)")}
   ${cmdStyle("check-update")}       ${subtle("Check for available updates")}
-  ${cmdStyle("install")}            ${subtle("Install opoclaw command + optional service")}
-  ${cmdStyle("service install")}    ${subtle("Install auto-start service (systemd/launchd)")}
-  ${cmdStyle("service remove")}     ${subtle("Remove auto-start service")}
-  ${cmdStyle("uninstall")}          ${subtle("Remove command, service, and clean up")}
-  ${cmdStyle("explainer")}          ${subtle("How opoclaw works")}
-  ${cmdStyle("migrate")}            ${subtle("Upgrade config (JSON→TOML, camelCase→snake_case, sections)")}
+  ${cmdStyle("install")}            ${subtle("Install the opoclaw command wrapper")}
+  ${cmdStyle("uninstall")}          ${subtle("Remove the command wrapper and clean up")}
   ${cmdStyle("onboard")}            ${subtle("Run onboarding wizard")}
   ${cmdStyle("config")}             ${subtle("List all config options, defaults, and current values")}
   ${cmdStyle("version")}            ${subtle("Print current version (git tag)")}

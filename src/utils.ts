@@ -19,8 +19,8 @@ export function exec(cmd: string, opts?: { cwd?: string }): string {
     return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], ...opts }).trim();
 }
 
-// Run git directly (no shell) so it works on Windows too — Bun.spawn resolves
-// the executable on PATH. Returns null if git is missing or exits non-zero.
+// Run git directly (no shell); Bun.spawn resolves the executable on PATH.
+// Returns null if git is missing or exits non-zero.
 function runGit(args: string[]): string | null {
     try {
         const p = Bun.spawnSync({

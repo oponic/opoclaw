@@ -1,7 +1,7 @@
 import {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    TextChannel, ComponentType, Message
-} from "discord.js";
+    ComponentType, type TextChannel, type Message
+} from "../../discord/mini.ts";
 
 export type PollState = {
     channelId: string;

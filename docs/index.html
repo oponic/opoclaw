@@ -92,7 +92,6 @@
   <h2>Install</h2>
   <select id="osSelect" onchange="updateCmd()">
     <option value="mac">macOS / Linux</option>
-    <option value="win">Windows</option>
   </select>
   <div class="cmd-box">
     <div class="cmd" id="installCmd"></div>
@@ -157,15 +156,11 @@
       mac: {
         cmd: 'curl -fsSL https://raw.githubusercontent.com/oponic/opoclaw/refs/heads/main/installers/setup.sh | bash',
         note: 'macOS & Linux'
-      },
-      win: {
-        cmd: 'irm https://raw.githubusercontent.com/oponic/opoclaw/refs/heads/main/installers/setup.ps1 | iex',
-        note: 'PowerShell as Administrator'
       }
     };
 
     function detectOS() {
-      return navigator.userAgent.toLowerCase().includes('win') ? 'win' : 'mac';
+      return 'mac';
     }
 
     function updateCmd() {

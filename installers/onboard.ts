@@ -224,26 +224,13 @@ async function main() {
             ollama: { base_url: ollamaBaseURL, model: ollamaModel },
         };
     } else if (provider === "custom") {
-        const customApiType = await askMCQ("Custom API type", ["openai", "anthropic"] as const, "openai");
-        if (customApiType === "anthropic") {
-            const customBaseURL = await ask("Anthropic base URL [https://api.anthropic.com]: ") || "https://api.anthropic.com";
-            const customAPIKey = await ask("Anthropic API key (sk-ant-...): ");
-            const customModel = await ask("Anthropic model name (e.g. claude-3-5-sonnet-20240620): ");
-            const customAnthropicVersion = await ask("Anthropic version [2023-06-01]: ") || "2023-06-01";
-            const customMaxTokens = parseInt(await ask("Max output tokens [1024]: ") || "1024", 10);
-            providerSection = {
-                active: "custom",
-                custom: { base_url: customBaseURL, api_key: customAPIKey, model: customModel, api_type: "anthropic", anthropic_version: customAnthropicVersion, max_tokens: customMaxTokens },
-            };
-        } else {
-            const customBaseURL = await ask("Base URL (no /v1/chat/completions): ");
-            const customAPIKey = await ask("API key (blank if none): ");
-            const customModel = await ask("Model name: ");
-            providerSection = {
-                active: "custom",
-                custom: { base_url: customBaseURL, api_key: customAPIKey, model: customModel, api_type: "openai" },
-            };
-        }
+        const customBaseURL = await ask("OpenAI-compatible base URL (no /v1/chat/completions): ");
+        const customAPIKey = await ask("API key (blank if none): ");
+        const customModel = await ask("Model name: ");
+        providerSection = {
+            active: "custom",
+            custom: { base_url: customBaseURL, api_key: customAPIKey, model: customModel },
+        };
     } else {
         const openrouterKey = await ask("OpenRouter API key (sk-or-v1-...): ");
         if (!openrouterKey) {

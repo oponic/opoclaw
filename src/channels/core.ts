@@ -8,7 +8,7 @@ import { startDreamer } from "./dreamer.ts";
 import { AgentSession, summarizeToolBatch, type ToolCall } from "../agent.ts";
 import { loadConfig } from "../config.ts";
 import { requiresToolApproval } from "../tools/index.ts";
-import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "./shared.ts";
+import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR, json } from "./shared.ts";
 import { initFileLogging } from "../logging.ts";
 
 const LOCK_FILE = resolve(OP_DIR, ".gateway.lock");
@@ -161,13 +161,6 @@ export async function runCoreChatTurn(
     return { text: result.text, reasoningSummary: result.reasoningSummary };
 }
 
-function json(data: unknown, status = 200): Response {
-    return new Response(JSON.stringify(data), {
-        status,
-        headers: { "content-type": "application/json" },
-    });
-}
-
 export async function handleCoreRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname === "/health") {
@@ -240,40 +233,27 @@ export async function startCore() {
 
     console.log(`[core] Control server listening on http://${CORE_HOST}:${server.port}`);
 
-    try {
-        await startDiscord();
-    } catch (err: any) {
-        console.error(`Discord channel failed to start: ${err.message}`);
-        if (process.env.EXIT_ON_DISCORD_FAIL) {
-            clearGatewayPid();
-            process.exit(1);
+    // Every channel is a `start()` that reads config, self-disables if its flag
+    // is off, and wires up its own transport. `fatal` channels abort the gateway
+    // on failure; the rest just log and continue.
+    const CHANNELS: { name: string; start: () => void | Promise<unknown>; fatal?: boolean }[] = [
+        { name: "Discord", start: startDiscord, fatal: !!process.env.EXIT_ON_DISCORD_FAIL },
+        { name: "IRC", start: startIRC },
+        { name: "OpenAI", start: startOpenAI, fatal: true },
+        { name: "Heartbeat", start: startHeartbeat },
+        { name: "Dreamer", start: startDreamer },
+    ];
+
+    for (const channel of CHANNELS) {
+        try {
+            await channel.start();
+        } catch (err: any) {
+            console.error(`${channel.name} channel failed to start: ${err.message}`);
+            if (channel.fatal) {
+                clearGatewayPid();
+                throw err;
+            }
         }
-        console.error("Discord channel startup failed; continuing");
-    }
-
-    try {
-        await startIRC();
-    } catch (err: any) {
-        console.error(`IRC channel failed to start: ${err.message}`);
-    }
-
-    try {
-        await startOpenAI();
-    } catch (err: any) {
-        console.error(`OpenAI channel failed to start: ${err.message}`);
-        throw err;
-    }
-
-    try {
-        startHeartbeat();
-    } catch (err: any) {
-        console.error(`Heartbeat failed to start: ${err.message}`);
-    }
-
-    try {
-        startDreamer();
-    } catch (err: any) {
-        console.error(`Dreamer failed to start: ${err.message}`);
     }
 
     return server;

@@ -12,11 +12,9 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "discord.js": "^14.27.0",
     "kleur": "^4.1.5",
     "ollama": "^0.6.3",
     "openai": "^6.34.0",
-    "orproxy": "github:oponic/orproxy.ts",
     "wasm-shell": "0.2.0"
   }
 }

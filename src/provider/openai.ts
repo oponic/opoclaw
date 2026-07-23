@@ -2,7 +2,6 @@ import OpenAI from "openai";
 import { getApiBaseUrl, getApiKey, getActiveProvider, getModelId, type OpoclawConfig } from "../config.ts";
 import { type ToolSchema } from "../tools/index.ts";
 import type { Message, ToolCall, CompletionResult } from "./types.ts";
-import { useProxy, buildProxyModel, ensureProxyRunning } from "./orproxy.ts";
 
 export function buildClientOptions(config: OpoclawConfig) {
     const options: Record<string, any> = {
@@ -25,20 +24,10 @@ export async function generateCompletion(
     tools: ToolSchema[],
     sessionId: string,
 ): Promise<CompletionResult> {
-    // Start the local OpenRouter proxy on demand so the `$`-suffixed model
-    // options (reasoning, quantization, caching, zdr, provider routing) apply.
-    if (getActiveProvider(config) === "openrouter" && useProxy(config)) {
-        await ensureProxyRunning(config);
-    }
-
     const client = new OpenAI(buildClientOptions(config));
 
-    const model = getActiveProvider(config) === "openrouter" && useProxy(config)
-        ? buildProxyModel(config)
-        : getModelId(config);
-
     const requestParams: any = {
-        model,
+        model: getModelId(config),
         messages: messages as any,
     };
     if (tools.length > 0) {

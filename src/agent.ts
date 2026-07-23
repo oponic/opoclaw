@@ -20,10 +20,6 @@ interface ToolResult {
     output: string;
 }
 
-function isAnthropicCustom(config: OpoclawConfig): boolean {
-    return config.provider?.active === "custom" && config.provider?.custom?.api_type === "anthropic";
-}
-
 function configWithModel(config: OpoclawConfig, model: string): OpoclawConfig {
     const active = getActiveProvider(config);
     if (active === "openrouter") return { ...config, provider: { ...config.provider, openrouter: { ...config.provider?.openrouter, model } } };
@@ -36,8 +32,6 @@ async function generateReasoningSummary(
     config: OpoclawConfig,
     sessionId: string
 ): Promise<string> {
-    if (isAnthropicCustom(config)) return "(no summary)";
-
     const model = config.reasoning_summary_model || getModelId(config);
     const result = await provider.generateCompletion(
         [{ role: "user", content: `Summarize this reasoning in one short sentence (no markdown, just plain text):\n\n${reasoningText.slice(0, 3000)}` }],

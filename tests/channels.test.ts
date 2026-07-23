@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { type Client, Message as DiscordMessage } from "discord.js";
+import { type Client, type Message as DiscordMessage } from "../src/discord/mini.ts";
 import { handleCoreRequest } from "../src/channels/core.ts";
 import { startDiscord, formatDiscordMessage } from "../src/channels/discord";
 import { startIRC } from "../src/channels/irc.ts";

@@ -15,10 +15,10 @@ import {
     StringSelectMenuBuilder,
     REST,
     Routes,
-    User,
-    ReactionManager,
+    type User,
+    type ReactionManager,
     MessageReferenceType,
-} from "discord.js";
+} from "../../discord/mini.ts";
 import { AgentSession, summarizeToolBatch, type Message as ChatMessage, type ToolCall } from "../../agent.ts";
 import { requiresToolApproval } from "../../tools/index.ts";
 import { getFilePath } from "../../workspace.ts";

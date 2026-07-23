@@ -37,25 +37,12 @@ export interface OpoclawConfig {
             vision?: boolean;
             video?: boolean;
             use_session_ids?: boolean;
-            // ── orproxy options (require use_proxy) ──
-            use_proxy?: boolean;
-            proxy_port?: number;
-            quantization?: "int4" | "int8" | "fp4" | "fp6" | "fp8" | "fp16" | "bf16" | "fp32";
-            reasoning_effort?: string;
-            zdr?: boolean;
-            strict?: boolean;
-            cache?: "off" | "5m" | "1h";
-            service_tier?: string;
-            providers?: string[];
         };
         ollama?: { base_url?: string; model?: string };
         custom?: {
             base_url?: string;
             api_key?: string;
             model?: string;
-            api_type?: "openai" | "anthropic";
-            anthropic_version?: string;
-            max_tokens?: number;
             vision?: boolean;
             video?: boolean;
         };
@@ -127,13 +114,6 @@ export function getApiBaseUrl(config: OpoclawConfig): string {
     const active = getActiveProvider(config);
     if (active === "custom") return config.provider?.custom?.base_url || "http://localhost:11434";
     if (active === "ollama") return config.provider?.ollama?.base_url || "http://localhost:11434";
-    // When the orproxy is enabled, route OpenRouter traffic through the local
-    // proxy. The proxy mounts routes at `/:loc/chat/completions` (loc = "v1"),
-    // so it expects the base without an `/api` segment.
-    if (config.provider?.openrouter?.use_proxy) {
-        const port = config.provider?.openrouter?.proxy_port || 3001;
-        return `http://127.0.0.1:${port}`;
-    }
     return config.provider?.openrouter?.base_url || "https://openrouter.ai/api";
 }
 

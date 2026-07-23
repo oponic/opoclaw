@@ -8,6 +8,24 @@ export const OP_DIR = resolve(import.meta.dir, "../..");
 export const HIBERNATE_FILE = resolve(OP_DIR, ".gateway.hibernate");
 const SYSTEM_PROMPT_FILE = resolve(import.meta.dir, "../SYSTEM.md");
 
+export function json(data: unknown, status = 200): Response {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: { "content-type": "application/json" },
+    });
+}
+
+export function sse(data: string, status = 200): Response {
+    return new Response(data, {
+        status,
+        headers: {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+            connection: "keep-alive",
+        },
+    });
+}
+
 export async function isHibernating(): Promise<boolean> {
     try {
         return await Bun.file(HIBERNATE_FILE).exists();

@@ -121,7 +121,7 @@ clone_repo
 install_deps
 
 header "Installing opoclaw command"
-bun run src/cli.ts install --service
+bun run src/cli.ts install
 
 header "Launching onboard wizard"
 cd "$INSTALL_DIR"
