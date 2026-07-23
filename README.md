@@ -1,17 +1,26 @@
-# opoclaw
-opoclaw is an OpenClaw alternative built in Bun made to be fast and sandboxed. It is entirely safe to run by default, simple and easy to use, and a polished experience.
+# opoclaw [light]
+opoclaw light is a branch of opoclaw made to be extremely lightweight; cutting out multiple features in favor of lower CPU and RAM usage.
 |                       | **Opoclaw**          | OpenClaw   | NanoClaw   | PicoClaw |
 |-----------------------|----------------------|------------|------------|----------|
 | Language              | **Bun (TypeScript)** | TypeScript | TypeScript | Go       |
 | RAM                   | **<32 MB**           | <1 GB      | <500 MB    | <10 MB   |
 | Startup (0.8GHz core) | **<1s**              | <500s      | <30s       | <1s      |
 ## Getting Started
-You can find the installation scripts in the Releases tab, or copy one of these for your operating system:
+opoclaw light only runs on Linux.
 
-macOS and Linux: `curl -fsSL https://raw.githubusercontent.com/oponic/opoclaw/refs/heads/main/installers/setup.sh | bash`
+First, download opoclaw light.
 
-Windows: `irm https://raw.githubusercontent.com/oponic/opoclaw/refs/heads/main/installers/setup.ps1 | iex`
+`cd ~/Documents; git clone https://github.com/oponic/opoclaw.git; cd opoclaw; git checkout light`
 
+Make sure you have Bun installed.
+
+Set up opoclaw services:
+
+`bun . install; bun . service install; source ~/.bashrc` (or ~/.zshrc)
+
+Finally, you can begin onboarding, and finish up the setup.
+
+`opoclaw onboard`
 ## Docker
 Build and run with Docker (network access is enabled by default, required for search/web fetch):
 
