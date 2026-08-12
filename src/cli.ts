@@ -12,11 +12,14 @@ import { stdin as input, stdout as output } from "process";
 import kleur from "kleur";
 import type { ToolCall } from "./agent.ts";
 import { runCoreChatTurn } from "./channels/core.ts";
+import { readActivity } from "./activity.ts";
+import { validateConfig } from "./config-validation.ts";
+import { getDenoBinary } from "./deno.ts";
 
 // ── Paths ──────────────────────────────────────────────────────────────────
 
 const OP_DIR = resolve(import.meta.dir, "..");
-import { getConfigPath, formatTOMLValue, parseTOML, toTOML } from "./config.ts";
+import { getConfigPath, formatTOMLValue, parseTOML, toTOML, loadConfig } from "./config.ts";
 import { exec, checkForUpdate, doUpdate } from "./utils.ts";
 
 const USAGE_FILE = resolve(OP_DIR, "usage.json");
@@ -433,9 +436,12 @@ async function chatTui() {
                 return "(invalid args)";
               }
             })();
-            console.log(`${chip("AUTH", "yellow")} ${value(`Tool: ${call.function.name}`)}`);
+            console.log(`${chip("AUTH", "yellow")} ${value(`Tool: ${call.function.name} — this action requires approval and affects the requested resource.`)}`);
             console.log(`${subtle(preview)}\n`);
-            return await askYesNo(`${kleur.yellow().bold("Approve tool call?")}`, true);
+            const approved = await askYesNo(`${kleur.yellow().bold("Approve tool call?")}`, true);
+            if (!approved) return { approved: false };
+            const rawScope = (await rl.question(`${subtle("Scope: [1] once, [2] this session, [3] 30 minutes for this resource (default 1): ")}`)).trim();
+            return { approved: true, scope: rawScope === "2" ? "session" : rawScope === "3" ? "duration" : "once" };
           },
           requestPermission: async (message: string, title?: string) => {
             const header = title?.trim() ? `${title}: ` : "";
@@ -923,6 +929,13 @@ const CONFIG_REFERENCE: ConfigGroup[] = [
       { key: "channel.discord.token", type: "string", def: "—", desc: "Discord bot token" },
       { key: "channel.discord.allow_bots", type: "boolean", def: "false", desc: "Respond to other bots" },
       { key: "channel.discord.notify_channel", type: "string", def: "—", desc: "Channel ID for update notifications" },
+      { key: "channel.signal.enabled", type: "boolean", def: "false", desc: "Enable the Signal channel" },
+      { key: "channel.signal.account", type: "string", def: "—", desc: "Linked or registered signal-cli account number" },
+      { key: "channel.signal.socket", type: "string", def: "$XDG_RUNTIME_DIR/signal-cli/socket", desc: "signal-cli daemon Unix socket" },
+      { key: "channel.signal.host", type: "string", def: "127.0.0.1", desc: "signal-cli daemon TCP host" },
+      { key: "channel.signal.port", type: "number", def: "7583", desc: "signal-cli daemon TCP port" },
+      { key: "channel.signal.bot_name", type: "string", def: "opoclaw", desc: "Name to mention in Signal groups" },
+      { key: "channel.signal.autostart", type: "boolean", def: "true", desc: "Start signal-cli daemon with gateway" },
       { key: "channel.irc.enabled", type: "boolean", def: "false", desc: "Enable the IRC channel" },
       { key: "channel.irc.server", type: "string", def: "—", desc: "IRC server host" },
       { key: "channel.irc.port", type: "number", def: "6667", desc: "IRC server port" },
@@ -955,6 +968,9 @@ const CONFIG_REFERENCE: ConfigGroup[] = [
       { key: "real_shell", type: "boolean", def: "false", desc: "Use the real host shell instead of the sandbox" },
       { key: "exposed_commands", type: "string[]", def: "[]", desc: "Host commands exposed inside the sandbox shell" },
       { key: "ollama_semantic_search", type: "boolean", def: "false", desc: "Enable the semantic-search sandbox command" },
+      { key: "tools.deno_enabled", type: "boolean", def: "true", desc: "Enable required sandboxed Deno execution" },
+      { key: "tools.deno_timeout_ms", type: "number", def: "30000", desc: "Deno sandbox wall-clock timeout" },
+      { key: "tools.deno_allowed_imports", type: "string[]", def: "@std, zod, lodash", desc: "Allowed Deno import prefixes" },
       { key: "enable_web_fetch", type: "boolean", def: "true", desc: "Enable the web_fetch tool" },
       { key: "search_provider", type: "duckduckgo|tavily", def: "duckduckgo", desc: "Web search backend" },
       { key: "tavily_api_key", type: "string", def: "—", desc: "Tavily API key (tvly-...)" },
@@ -972,6 +988,18 @@ const CONFIG_REFERENCE: ConfigGroup[] = [
       { key: "show_update_notification", type: "boolean", def: "true", desc: "Announce available updates in Discord" },
       { key: "heartbeat.enabled", type: "boolean", def: "false", desc: "Run the periodic heartbeat agent" },
       { key: "heartbeat.interval_minutes", type: "number", def: "60", desc: "Minutes between heartbeat runs" },
+      { key: "cron.enabled", type: "boolean", def: "false", desc: "Run durable cron schedules" },
+      { key: "cron.max_jobs", type: "number", def: "100", desc: "Maximum cron jobs run per scheduler pass" },
+      { key: "cron.timezone", type: "string", def: "system timezone", desc: "IANA timezone used for cron matching" },
+      { key: "cron.catch_up", type: "boolean", def: "true", desc: "Run missed schedules after downtime" },
+      { key: "jobs.max_concurrent", type: "number", def: "2", desc: "Maximum concurrent durable jobs" },
+      { key: "jobs.max_per_session", type: "number", def: "1", desc: "Maximum concurrent durable jobs per session" },
+      { key: "usage_alerts.hard_limit", type: "number", def: "—", desc: "Pause model calls once rolling cost reaches this USD amount" },
+      { key: "usage_alerts.session_limit", type: "number", def: "—", desc: "Pause a session once its tracked cost reaches this USD amount" },
+      { key: "artifacts.retention_days", type: "number", def: "7", desc: "Days artifacts are retained" },
+      { key: "artifacts.max_bytes", type: "number", def: "—", desc: "Maximum artifact-store size in bytes" },
+      { key: "activity.enabled", type: "boolean", def: "false", desc: "Enable authenticated localhost activity endpoint" },
+      { key: "activity.token", type: "string", def: "—", desc: "Bearer token for the local activity endpoint" },
       { key: "dreamer.enabled", type: "boolean", def: "false", desc: "Run the end-of-day dreamer reflection" },
     ],
   },
@@ -1021,6 +1049,51 @@ function showConfigReference() {
   console.log(`${subtle("Edit")} ${cmdStyle(configPath)} ${subtle("directly, or run")} ${cmdStyle("opoclaw onboard")} ${subtle("to regenerate it.")}\n`);
 }
 
+// ── Diagnostics ─────────────────────────────────────────────────────────────
+
+async function doctor(jsonOutput = false): Promise<void> {
+  const checks: { name: string; ok: boolean; detail: string }[] = [];
+  let config: any;
+  try {
+    config = loadConfig();
+    const issues = validateConfig(config);
+    checks.push({ name: "config", ok: issues.length === 0, detail: issues.length ? issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ") : `Loaded ${getConfigPath()}` });
+  } catch (e: any) {
+    checks.push({ name: "config", ok: false, detail: e.message || String(e) });
+  }
+  try {
+    const deno = Bun.spawnSync({ cmd: [getDenoBinary(), "--version"], stdout: "pipe", stderr: "pipe" });
+    checks.push({ name: "deno", ok: deno.exitCode === 0, detail: deno.exitCode === 0 ? (new TextDecoder().decode(deno.stdout).split("\n")[0] || "Available") : "Not installed (Deno tool unavailable)" });
+  } catch {
+    checks.push({ name: "deno", ok: false, detail: "Not installed (Deno tool unavailable)" });
+  }
+  if (config?.channel?.signal?.enabled) {
+    const binary = config.channel.signal.signal_cli_path || "signal-cli";
+    try {
+      const signal = Bun.spawnSync({ cmd: [binary, "--version"], stdout: "pipe", stderr: "pipe" });
+      checks.push({ name: "signal-cli", ok: signal.exitCode === 0, detail: signal.exitCode === 0 ? "Available" : `Missing or failed: ${binary}` });
+    } catch {
+      checks.push({ name: "signal-cli", ok: false, detail: `Missing or failed: ${binary}` });
+    }
+  }
+  const workspaceWritable = await Bun.write(resolve(WORKSPACE_DIR, ".doctor-write-test"), "ok").then(async () => { try { unlinkSync(resolve(WORKSPACE_DIR, ".doctor-write-test")); } catch {} return true; }).catch(() => false);
+  checks.push({ name: "workspace", ok: workspaceWritable, detail: workspaceWritable ? "Writable" : "Not writable" });
+  if (jsonOutput) console.log(JSON.stringify({ ok: checks.every((check) => check.ok), checks }, null, 2));
+  else for (const check of checks) console.log(`${check.ok ? kleur.green("✓") : kleur.red("✗")} ${check.name}: ${check.detail}`);
+}
+
+async function showActivity(jsonOutput = false): Promise<void> {
+  const args = process.argv.slice(3);
+  const type = args.find((arg) => arg.startsWith("--type="))?.slice(7);
+  const sessionId = args.find((arg) => arg.startsWith("--session="))?.slice(10);
+  const jobId = args.find((arg) => arg.startsWith("--job="))?.slice(6);
+  const limitRaw = args.find((arg) => arg.startsWith("--limit="))?.slice(8);
+  const events = await readActivity(limitRaw ? Number(limitRaw) : 100, { type, sessionId, jobId });
+  if (jsonOutput) { console.log(JSON.stringify(events, null, 2)); return; }
+  if (events.length === 0) { info("No activity recorded yet."); return; }
+  for (const event of events) console.log(`${subtle(event.timestamp)} ${label(event.type)} ${event.tool ? `${event.tool} ` : ""}${event.jobId ? `job=${event.jobId}` : ""}`.trim());
+}
+
 // ── CLI Router ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1030,6 +1103,14 @@ async function main() {
   switch (cmd) {
     case "usage":
       await showUsage();
+      break;
+
+    case "doctor":
+      await doctor(args.includes("--json"));
+      break;
+
+    case "activity":
+      await showActivity(args.includes("--json"));
       break;
 
     case "gateway":
@@ -1181,6 +1262,10 @@ ${kleur.blue().bold("Lightweight AI agent framework")}
 
 ${chip("COMMANDS", "magenta")}
   ${cmdStyle("usage")}              ${subtle("Show token usage (last 24h) and cost")}
+  ${cmdStyle("doctor [--json]")}     ${subtle("Validate local prerequisites and configuration")}
+  ${cmdStyle("activity [--json]")}   ${subtle("Show activity; filter with --type/--session/--job/--limit")}
+  ${subtle("                    Example: opoclaw activity --type=delivery.sent --limit=20")}
+  ${cmdStyle("doctor [--json]")}     ${subtle("Validate config, Deno, workspace, and enabled prerequisites")}
   ${cmdStyle("gateway start")}      ${subtle("Start the bot gateway")}
   ${cmdStyle("gateway stop")}       ${subtle("Stop the gateway")}
   ${cmdStyle("gateway restart")}    ${subtle("Restart the gateway")}

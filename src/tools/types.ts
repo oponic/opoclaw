@@ -23,12 +23,29 @@ export type ToolContext = {
     onDeepResearchSummary?: (summary: string) => Promise<void>;
 };
 
+export type ToolResult = {
+    summary: string;
+    data?: unknown;
+    warnings?: string[];
+    artifacts?: { id: string; name?: string }[];
+    truncated?: boolean;
+};
+
+export function renderToolResult(result: ToolResult | string): string {
+    return typeof result === "string" ? result : JSON.stringify(result);
+}
+
 export type ToolHandler = (args: ToolArgs, context: ToolContext) => Promise<string>;
 
 export type ToolDefinition = {
     schema: ToolSchema;
     enabled?: (config: OpoclawConfig) => boolean;
     requiresApproval?: boolean;
+    /** Capability labels used by the centralized policy layer. */
+    capabilities?: ("read" | "write" | "execute" | "network" | "schedule" | "message" | "config" | "admin")[];
+    /** Searchable category used to expose tools incrementally. */
+    toolset?: string;
+    keywords?: string[];
     handler?: ToolHandler;
     /** Optional config-dependent override for the tool's description. */
     describe?: (config: OpoclawConfig) => string;

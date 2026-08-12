@@ -1,5 +1,7 @@
 import { defineTool, type ToolDefinition } from "./types.ts";
 import type { BackgroundSubagentJob } from "../agent.ts";
+import { createJob } from "../jobs.ts";
+import { registerLocalJobExecutor } from "../job-runner.ts";
 
 export const AGENT_TOOLS = {
     deep_research: defineTool(
@@ -87,16 +89,20 @@ export const AGENT_TOOLS = {
                 const id = `subbg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                 const job: BackgroundSubagentJob = { id, label, request, status: "running" };
                 session.registerBackgroundJob(job);
-                void (async () => {
-                    try {
-                        job.output = await session.runSubagentRequest(request, includeContext, session.currentSystemPrompt, config);
-                        job.status = "done";
-                    } catch (e: any) {
-                        job.status = "error";
-                        job.output = String(e?.message || e || "unknown error");
-                    }
-                })();
-                return `Background subagent started (${id}). Label: ${label}.`;
+                const durable = await createJob({ type: "subagent", label, request, target: session.deliveryTarget, ownerSessionId: session.sessionId, nextRunAt: new Date().toISOString() });
+                registerLocalJobExecutor(durable.id, async () => {
+                    const output = await session.runSubagentRequest(request, includeContext, session.currentSystemPrompt, config);
+                    job.output = output;
+                    job.status = "done";
+                    return output;
+                });
+                // Execute through the durable runner exactly once. Running it now
+                // keeps the foreground-session completion injection responsive;
+                // if the process exits first, startup recovery runs the persisted job.
+                const { runDueJobs } = await import("../job-runner.ts");
+                await runDueJobs();
+                setTimeout(() => { if (job.status === "running") job.status = "error"; }, 5 * 60_000);
+                return `Background subagent started (${id}; durable job ${durable.id}). Label: ${label}.`;
             },
         },
     ),
@@ -122,11 +128,18 @@ export const AGENT_TOOLS = {
                 const id = `timer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                 const job: BackgroundSubagentJob = { id, label, request: `Timer for ${seconds} seconds`, status: "running" };
                 session.registerBackgroundJob(job);
-                setTimeout(() => {
-                    job.status = "done";
-                    job.output = `Timer expired at ${new Date().toLocaleTimeString()}.`;
+                const durable = await createJob({ type: "timer", label, request: job.request, target: session.deliveryTarget, ownerSessionId: session.sessionId, nextRunAt: new Date(Date.now() + seconds * 1000).toISOString() });
+                const { runDueJobs } = await import("../job-runner.ts");
+                setTimeout(async () => {
+                    await runDueJobs();
+                    // Preserve foreground injection even if another queued job
+                    // consumed the runner slot before this timer's job is claimed.
+                    if (job.status === "running") {
+                        job.status = "done";
+                        job.output = `Timer expired at ${new Date().toLocaleTimeString()}.`;
+                    }
                 }, seconds * 1000);
-                return `Timer set for ${seconds} seconds (${id}). Label: ${label}.`;
+                return `Timer set for ${seconds} seconds (${id}; durable job ${durable.id}). Label: ${label}.`;
             },
         },
     ),

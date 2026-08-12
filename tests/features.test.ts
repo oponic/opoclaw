@@ -236,7 +236,7 @@ describe("dreamer", () => {
     let sawTranscript = false;
     provider.generateCompletion = async (messages, _c, onFirstToken) => {
       onFirstToken();
-      sawTranscript = messages.some(
+      sawTranscript ||= messages.some(
         (m) => typeof m.content === "string" && m.content.includes("Mochi") && m.content.includes(pastDate)
       );
       return textResult("memory updated");

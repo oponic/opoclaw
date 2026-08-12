@@ -31,6 +31,22 @@ function Ensure-Git {
     Write-Ok "Git installed"
 }
 
+function Ensure-Deno {
+    if (Get-Command deno -ErrorAction SilentlyContinue) {
+        Write-Ok "Deno already installed ($(deno --version | Select-Object -First 1))"
+        return
+    }
+    Write-Info "Installing Deno (required)..."
+    $pm = Ensure-PackageManager
+    switch ($pm) {
+        "winget" { winget install DenoLand.Deno --accept-source-agreements --accept-package-agreements }
+        "scoop"  { scoop install deno }
+    }
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","User") + ";" + [System.Environment]::GetEnvironmentVariable("Path","Machine")
+    if (!(Get-Command deno -ErrorAction SilentlyContinue)) { throw "Deno installation failed." }
+    Write-Ok "Deno installed ($(deno --version | Select-Object -First 1))"
+}
+
 function Ensure-Bun {
     if (Get-Command bun -ErrorAction SilentlyContinue) {
         Write-Ok "Bun already installed ($(bun --version))"
@@ -84,6 +100,7 @@ function Install-Dependencies {
 Write-Header "opoclaw installer (Windows)"
 Ensure-Git
 Ensure-Bun
+Ensure-Deno
 
 Write-Header "Setting up opoclaw"
 Clone-Repo

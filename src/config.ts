@@ -67,6 +67,17 @@ export interface OpoclawConfig {
             allow_bots?: boolean;
             notify_channel?: string;
         };
+        signal?: {
+            enabled?: boolean;
+            account?: string;
+            socket?: string;
+            host?: string;
+            port?: number;
+            bot_name?: string;
+            attachments_dir?: string;
+            autostart?: boolean;
+            signal_cli_path?: string;
+        };
         irc?: {
             enabled?: boolean;
             server?: string;
@@ -104,6 +115,37 @@ export interface OpoclawConfig {
     heartbeat?: {
         enabled?: boolean;
         interval_minutes?: number;
+    };
+    cron?: {
+        enabled?: boolean;
+        max_jobs?: number;
+        timezone?: string;
+        catch_up?: boolean;
+    };
+    jobs?: {
+        max_concurrent?: number;
+        max_per_session?: number;
+    };
+    artifacts?: {
+        retention_days?: number;
+        max_bytes?: number;
+    };
+    usage_alerts?: {
+        enabled?: boolean;
+        thresholds?: number[];
+        hard_limit?: number;
+        session_limit?: number;
+        job_limit?: number;
+    };
+    tools?: {
+        legacy_full_exposure?: boolean;
+        deno_enabled?: boolean;
+        deno_timeout_ms?: number;
+        deno_allowed_imports?: string[];
+    };
+    activity?: {
+        enabled?: boolean;
+        token?: string;
     };
     dreamer?: {
         enabled?: boolean;

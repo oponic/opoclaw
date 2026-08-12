@@ -1,5 +1,7 @@
 import { readFile, getFilePath, editFile, listFiles } from "../workspace.ts";
 import { defineTool, type ToolDefinition } from "./types.ts";
+import { createArtifact } from "../artifacts.ts";
+import { enqueueDelivery } from "../channels/delivery.ts";
 
 export const FILE_TOOLS = {
     read_file: defineTool(
@@ -74,9 +76,15 @@ export const FILE_TOOLS = {
         {
             handler: async (args, { config, session }) => {
                 if (!args.path) throw new Error("Missing 'path' argument for send_file.");
-                getFilePath(String(args.path), config.mounts);
+                const source = getFilePath(String(args.path), config.mounts);
+                const bytes = new Uint8Array(await Bun.file(source).arrayBuffer());
+                const artifact = await createArtifact(bytes, { name: String(args.path).split("/").pop(), sessionId: session.sessionId, maxBytes: config.artifacts?.max_bytes });
+                if (session.deliveryTarget) {
+                    await enqueueDelivery(session.deliveryTarget, String(args.caption || ""), [artifact.id], `send-file:${session.sessionId}:${artifact.id}`);
+                    return `Artifact "${artifact.name}" queued for delivery.`;
+                }
                 session.pendingFileSend = { path: String(args.path), caption: String(args.caption || "") };
-                return `File "${args.path}" queued for sending.`;
+                return `Artifact "${artifact.name}" queued; no delivery target is active.`;
             },
         },
     ),

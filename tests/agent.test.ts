@@ -190,6 +190,8 @@ describe("agent", () => {
             expect(lastMessage!.content).toContain("Channel: core/terminal");
             expect(lastMessage!.content).toContain("Context Usage:");
             expect(lastMessage!.content).toContain("Spending (last 24h):");
+            expect(lastMessage!.content).toContain("Toolsets:");
+            expect(lastMessage!.content).toContain("Active durable jobs:");
         } finally {
             provider.generateCompletion = original;
         }

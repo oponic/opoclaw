@@ -1,10 +1,16 @@
 import { resolve } from "path";
 import { unlinkSync, writeFileSync } from "fs";
 import { startDiscord } from "./discord/index.ts";
+import { startSignal } from "./signal/index.ts";
 import { startIRC } from "./irc.ts";
 import { startOpenAI } from "./openai.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { startDreamer } from "./dreamer.ts";
+import { startCronScheduler, stopCronScheduler } from "../cron.ts";
+import { startDeliveryWorker, stopDeliveryWorker } from "./delivery.ts";
+import { startJobRunner, stopJobRunner } from "../job-runner.ts";
+import { assertDenoAvailable } from "../deno.ts";
+import { runMaintenancePass } from "../operations.ts";
 import { AgentSession, summarizeToolBatch, type ToolCall } from "../agent.ts";
 import { loadConfig } from "../config.ts";
 import { requiresToolApproval } from "../tools/index.ts";
@@ -16,6 +22,13 @@ const LOG_FILE = resolve(OP_DIR, "logs/gateway.log");
 const CORE_HOST = "127.0.0.1";
 const CORE_PORT = 6112;
 const coreChatSessions = new Map<string, AgentSession>();
+const terminalDelivery = new Map<string, string[]>();
+
+export function takeTerminalDelivery(conversationId: string): string[] {
+    const messages = terminalDelivery.get(conversationId) || [];
+    terminalDelivery.delete(conversationId);
+    return messages;
+}
 
 function clearGatewayPid(): void {
     try {
@@ -33,7 +46,7 @@ function setGatewayPid(pid: number): void {
 
 
 export type CoreChatCallbacks = {
-    approveTool?: (call: ToolCall, args: Record<string, any>) => Promise<boolean>;
+    approveTool?: (call: ToolCall, args: Record<string, any>) => Promise<boolean | { approved: boolean; scope?: "once" | "session" | "duration" }>;
     requestPermission?: (message: string, title?: string) => Promise<boolean>;
     askQuestion?: (question: string, options: string[], title?: string) => Promise<{ selected: string; userLabel?: string } | null>;
     onToolLine?: (line: string) => void;
@@ -49,6 +62,13 @@ export async function runCoreChatTurn(
     let session = coreChatSessions.get(sessionKey);
     if (!session) {
         session = new AgentSession(`opoclaw-core-${sessionKey}-${Date.now()}`);
+        session.deliveryTarget = { channel: "terminal", conversationId: sessionKey, label: `Terminal ${sessionKey}` };
+        const { registerDeliveryTarget } = await import("./delivery.ts");
+        registerDeliveryTarget(session.deliveryTarget, async (content, attachments) => {
+            if (attachments?.length) return { delivered: false, detail: "Terminal delivery does not support attachments." };
+            terminalDelivery.set(sessionKey, [...(terminalDelivery.get(sessionKey) || []), content]);
+            return { delivered: true };
+        });
         coreChatSessions.set(sessionKey, session);
     }
 
@@ -94,15 +114,17 @@ export async function runCoreChatTurn(
         accumulatedToolResults.push(...results);
     };
 
-    const requestToolApproval = async (call: ToolCall, _uniqueId: string) => {
+    const requestToolApproval = async (call: ToolCall, _uniqueId: string, _resource?: string) => {
         if (!requiresToolApproval(call.function.name)) return { approved: true };
         let args: Record<string, any> = {};
         try {
             args = JSON.parse(call.function.arguments || "{}");
         } catch {
         }
-        const approved = callbacks.approveTool ? await callbacks.approveTool(call, args) : false;
-        return approved ? { approved: true } : { approved: false, message: "Not authorized to perform this action." };
+        const decision = callbacks.approveTool ? await callbacks.approveTool(call, args) : false;
+        const approved = typeof decision === "boolean" ? decision : decision.approved;
+        const scope = typeof decision === "boolean" ? "once" : decision.scope || "once";
+        return approved ? { approved: true, scope } : { approved: false, message: "Not authorized to perform this action." };
     };
 
     const executeTool = async (call: ToolCall, args: Record<string, any>): Promise<string | undefined> => {
@@ -149,6 +171,8 @@ export async function runCoreChatTurn(
             const trimmed = summary.trim();
             if (trimmed) callbacks.onToolLine?.(trimmed);
         },
+        onToolProgress: async (progress: string) => { callbacks.onToolLine?.(progress); },
+        onUsageAlert: async (threshold: number) => { callbacks.onToolLine?.(`Usage alert: rolling 24-hour spending reached $${threshold.toFixed(2)}.`); },
         executeTool,
     });
 
@@ -158,7 +182,8 @@ export async function runCoreChatTurn(
         if (trimmed && trimmed !== "(no summary)") callbacks.onToolLine?.(trimmed);
     }
 
-    return { text: result.text, reasoningSummary: result.reasoningSummary };
+    const notifications = takeTerminalDelivery(sessionKey);
+    return { text: result.text, reasoningSummary: result.reasoningSummary, ...(notifications.length ? { notifications } : {}) };
 }
 
 function json(data: unknown, status = 200): Response {
@@ -172,15 +197,12 @@ export async function handleCoreRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname === "/health") {
         const config = loadConfig();
+        const { getPlatformStatus } = await import("../platform-status.ts");
         return json({
             ok: true,
             pid: process.pid,
             hibernating: await isHibernating(),
-            channels: {
-                discord: !!config.channel?.discord?.enabled,
-                irc: !!config.channel?.irc?.enabled,
-                openai: !!config.channel?.openai?.enabled,
-            },
+            ...(await getPlatformStatus(config)),
         });
     }
 
@@ -196,6 +218,16 @@ export async function handleCoreRequest(req: Request): Promise<Response> {
             process.exit(0);
         }, 50);
         return response;
+    }
+
+    if (req.method === "GET" && url.pathname === "/activity") {
+        const config = loadConfig();
+        const token = config.activity?.token?.trim();
+        if (!config.activity?.enabled) return json({ error: "Activity endpoint is disabled." }, 404);
+        if (token && req.headers.get("authorization") !== `Bearer ${token}`) return json({ error: "Unauthorized." }, 401);
+        const { readActivity } = await import("../activity.ts");
+        const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit") || "100")));
+        return json({ events: await readActivity(limit, { type: url.searchParams.get("type") || undefined, sessionId: url.searchParams.get("session") || undefined, jobId: url.searchParams.get("job") || undefined }) });
     }
 
     if (req.method === "POST" && url.pathname === "/chat") {
@@ -218,10 +250,12 @@ export async function handleCoreRequest(req: Request): Promise<Response> {
 }
 
 export async function startCore() {
+    const startupConfig = loadConfig();
+    if (startupConfig.tools?.deno_enabled !== false) assertDenoAvailable();
     initFileLogging(LOG_FILE);
     setGatewayPid(process.pid);
 
-    const cleanup = () => clearGatewayPid();
+    const cleanup = () => { clearGatewayPid(); stopJobRunner(); stopDeliveryWorker(); stopCronScheduler(); };
     process.on("exit", cleanup);
     process.on("SIGTERM", () => {
         cleanup();
@@ -252,6 +286,13 @@ export async function startCore() {
     }
 
     try {
+        await startSignal();
+    } catch (err: any) {
+        console.error(`Signal channel failed to start: ${err.message}`);
+        if (process.env.EXIT_ON_SIGNAL_FAIL) throw err;
+    }
+
+    try {
         await startIRC();
     } catch (err: any) {
         console.error(`IRC channel failed to start: ${err.message}`);
@@ -274,6 +315,16 @@ export async function startCore() {
         startDreamer();
     } catch (err: any) {
         console.error(`Dreamer failed to start: ${err.message}`);
+    }
+
+    await runMaintenancePass(startupConfig.artifacts?.retention_days ?? 7);
+    startDeliveryWorker();
+    startJobRunner();
+    if (startupConfig.cron?.enabled) startCronScheduler();
+    if (startupConfig.artifacts?.retention_days) {
+        const { cleanupArtifacts } = await import("../artifacts.ts");
+        void cleanupArtifacts(startupConfig.artifacts.retention_days * 24 * 60 * 60 * 1000);
+        setInterval(() => void cleanupArtifacts(startupConfig.artifacts!.retention_days! * 24 * 60 * 60 * 1000), 24 * 60 * 60 * 1000);
     }
 
     return server;

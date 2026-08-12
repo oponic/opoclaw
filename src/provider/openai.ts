@@ -70,10 +70,11 @@ export async function generateCompletion(
         function: { name: tc.function.name, arguments: tc.function.arguments },
     }));
 
+    const cost = (data as any).usage?.cost ?? (data as any).cost ?? 0;
     return {
         text: message?.content || null,
         toolCalls,
-        usage: data.usage ?? null,
+        usage: data.usage ? { ...data.usage, cost } : null,
         reasoning,
         reasoning_details: (message as any).reasoning_details ?? null
     };

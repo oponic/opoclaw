@@ -6,7 +6,7 @@ import { existsSync } from "fs";
 // as the substrate the dreamer reflects over at the end of each UTC day.
 const LOG_DIR = resolve(import.meta.dir, "../data/interactions");
 
-export type InteractionKind = "user" | "assistant" | "tool_call" | "tool_result";
+export type InteractionKind = "user" | "assistant" | "tool_call" | "tool_result"; // Redacted operational replay is recorded separately in src/replay.ts.
 
 export interface InteractionEvent {
     ts: string;

@@ -1,6 +1,7 @@
 import { defineTool, type ToolDefinition } from "./types.ts";
 import { getModelId, getActiveProvider } from "../config.ts";
 import { loadUsage } from "../usage.ts";
+import { listJobs } from "../jobs.ts";
 
 export const INFO_TOOLS = {
     session_status: defineTool(
@@ -44,6 +45,8 @@ export const INFO_TOOLS = {
                     `- Context Usage: ~${estimatedTokens} tokens (${charCount} chars) in ${messageCount} messages.`,
                     `- Context Window: Model-dependent (check provider documentation for ${modelId}).`,
                     `- Spending (last 24h): $${recentSpending.toFixed(4)}`,
+                    `- Toolsets: ${session.getEnabledToolsets().join(", ")}`,
+                    `- Active durable jobs: ${(await listJobs()).filter((job) => job.status === "running" || job.status === "pending").length}`,
                 ].join("\n");
             },
         },

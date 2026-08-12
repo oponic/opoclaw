@@ -3,9 +3,10 @@ import { mkdtemp, writeFile, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { type Client, Message as DiscordMessage } from "discord.js";
-import { handleCoreRequest } from "../src/channels/core.ts";
+import { handleCoreRequest, runCoreChatTurn } from "../src/channels/core.ts";
 import { startDiscord, formatDiscordMessage } from "../src/channels/discord";
 import { startIRC } from "../src/channels/irc.ts";
+import { startSignal } from "../src/channels/signal/index.ts";
 import { handleOpenAIRequest, startOpenAI } from "../src/channels/openai.ts";
 import { provider } from "../src/provider/index.ts";
 
@@ -99,6 +100,14 @@ describe("channels", () => {
     });
   });
 
+  test("startSignal returns when disabled", async () => {
+    const cfg = `\n[channel.signal]\nenabled = false\n`;
+    await withTempConfig(cfg, async () => {
+      await startSignal();
+      expect(true).toBe(true);
+    });
+  });
+
   test("startIRC returns when disabled", async () => {
     const cfg = `\n[channel.irc]\nenabled = false\n`;
     await withTempConfig(cfg, async () => {
@@ -123,7 +132,43 @@ describe("channels", () => {
       expect(data.ok).toBe(true);
       expect(data.channels.openai).toBe(true);
       expect(data.channels.discord).toBe(false);
+      expect(data.jobs).toBeDefined();
+      expect(data.deliveries).toBeDefined();
+      expect(data.budgets).toBeDefined();
     });
+  });
+
+  test("activity endpoint filters by event type", async () => {
+    const cfg = `\n[activity]\nenabled = true\ntoken = "secret"\n`;
+    await withTempConfig(cfg, async () => {
+      const res = await handleCoreRequest(new Request("http://127.0.0.1:6112/activity?type=missing-event", { headers: { Authorization: "Bearer secret" } }));
+      const body = await res.json() as any;
+      expect(res.status).toBe(200);
+      expect(body.events).toEqual([]);
+    });
+  });
+
+  test("activity endpoint requires enablement and bearer token", async () => {
+    const disabled = `\n[activity]\nenabled = false\n`;
+    await withTempConfig(disabled, async () => {
+      expect((await handleCoreRequest(new Request("http://127.0.0.1:6112/activity"))).status).toBe(404);
+    });
+    const enabled = `\n[activity]\nenabled = true\ntoken = "secret"\n`;
+    await withTempConfig(enabled, async () => {
+      expect((await handleCoreRequest(new Request("http://127.0.0.1:6112/activity"))).status).toBe(401);
+      expect((await handleCoreRequest(new Request("http://127.0.0.1:6112/activity", { headers: { Authorization: "Bearer secret" } }))).status).toBe(200);
+    });
+  });
+
+  test("terminal chat captures durable notifications", async () => {
+    const cfg = `\n[provider]\nactive = "openrouter"\n[provider.openrouter]\napi_key = "k"\nmodel = "m"\nbase_url = "http://localhost"\n`;
+    const original = provider.generateCompletion;
+    provider.generateCompletion = async () => ({ text: "done", toolCalls: [], usage: null, reasoning: "" });
+    await withTempConfig(cfg, async () => {
+      const result = await runCoreChatTurn(`notify-${Date.now()}`, "hello", { onToolLine: () => {} });
+      expect(result.text).toBe("done");
+    });
+    provider.generateCompletion = original;
   });
 
   test("core chat endpoint returns assistant response", async () => {

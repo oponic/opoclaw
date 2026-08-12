@@ -203,11 +203,22 @@ async function main() {
 
     // ── Discord Token ──────────────────────────────────────────────────────
 
-    const discordToken = await ask("Discord bot token: ");
-    if (!discordToken) {
-        console.error(kleur.yellow("Error: Discord token is required."));
-        console.log("Create a bot at https://discord.com/developers/applications");
+    const channelMode = await askMCQ("Primary channel", ["discord", "signal", "terminal"] as const, "discord");
+    const discordToken = channelMode === "discord" ? await ask("Discord bot token: ") : "";
+    if (channelMode === "discord" && !discordToken) {
+        console.error(kleur.yellow("Error: Discord token is required when Discord is selected."));
         process.exit(1);
+    }
+    let signalAccount = "";
+    if (channelMode === "signal") {
+        signalAccount = await ask("Signal account in international format (e.g. +15551234567): ");
+        if (!signalAccount) {
+            console.error(kleur.yellow("Error: Signal account is required when Signal is selected."));
+            process.exit(1);
+        }
+        console.log(kleur.dim("Install signal-cli, link/register the account, then the gateway will connect to its daemon."));
+    } else if (!discordToken) {
+        console.log(kleur.yellow("Terminal-only setup selected. Use `opoclaw chat`."));
     }
 
     // ── Provider ─────────────────────────────────────────────────────────────
@@ -300,6 +311,9 @@ async function main() {
         "full"
     );
 
+    const cronEnabled = (await ask("Enable durable cron schedules for the agent? (Y/n): ")).toLowerCase() !== "n";
+    const usageAlertsEnabled = (await ask("Enable spending alerts and hard budget controls? (Y/n): ")).toLowerCase() !== "n";
+
     // ── Tavily Search ──────────────────────────────────────────────────────
 
     const useTavilyAns = await ask("Use Tavily for web search instead of DuckDuckGo? (y/N): ");
@@ -323,15 +337,19 @@ async function main() {
         basic_tools: basicTools,
         channel: {
             discord: {
-                enabled: true,
+                enabled: !!discordToken,
                 token: discordToken,
                 allow_bots: allowBots,
             },
+            ...(signalAccount ? { signal: { enabled: true, account: signalAccount, autostart: true, bot_name: "opoclaw" } } : {}),
         },
         provider: providerSection,
         ...(reasoningSummaryModel ? { reasoning_summary_model: reasoningSummaryModel } : {}),
         ...(authorizedUserId ? { authorized_user_id: authorizedUserId } : {}),
         ...(toolCallSummaries !== "full" ? { tool_call_summaries: toolCallSummaries } : {}),
+        cron: { enabled: cronEnabled },
+        usage_alerts: usageAlertsEnabled ? { enabled: true, thresholds: [1, 2] } : { enabled: false },
+        tools: { deno_enabled: true },
         ...(useTavily && tavilyApiKey ? { search_provider: "tavily" as const, tavily_api_key: tavilyApiKey } : {}),
     };
 

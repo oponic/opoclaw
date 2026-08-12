@@ -30,6 +30,7 @@ const CHANNEL_CONTEXT: Record<string, string> = {
     discord: "You are operating in a Discord channel context.",
     terminal: "You are operating in a terminal (CLI) context.",
     openai: "You are operating via the OpenAI-compatible API.",
+    signal: "You are operating in a Signal conversation context.",
     irc: "You are operating in an IRC channel context.",
     heartbeat: "You are operating as an automated heartbeat agent, invoked on a timer rather than by a user.",
     dreamer: "You are operating as the dreamer, reflecting over the day's interactions to consolidate long-term memory.",

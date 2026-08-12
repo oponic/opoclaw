@@ -1,6 +1,7 @@
 import path from "path";
 import { readFile, writeFile } from "fs/promises";
-import { getConfigPath, parseTOML, toTOML } from "../config.ts";
+import { getConfigPath, parseTOML, toTOML, type OpoclawConfig } from "../config.ts";
+import { validateConfig } from "../config-validation.ts";
 import { defineTool, type ToolDefinition } from "./types.ts";
 import { setHibernating } from "../channels/shared.ts";
 
@@ -84,8 +85,11 @@ export const GATEWAY_TOOLS = {
                 const raw = await readFile(configPath, "utf-8");
                 const parsed = parseTOML(raw);
                 setNestedValue(parsed, String(args.key), coerceConfigValue(String(args.value)));
+                const issues = validateConfig(parsed as OpoclawConfig);
+                if (issues.length > 0) throw new Error(`Config validation failed: ${issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`);
                 await writeFile(configPath, toTOML(parsed), "utf-8");
-                return `Updated config key "${args.key}".`;
+                const restartRequired = String(args.key).startsWith("channel.") || String(args.key).startsWith("provider.");
+                return `Updated config key "${args.key}".${restartRequired ? " Restart the gateway to apply this setting." : " Applied to new work immediately."}`;
             },
         },
     ),

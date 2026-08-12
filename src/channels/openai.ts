@@ -2,6 +2,7 @@ import { AgentSession, type Message as AgentMessage, type ToolCall } from "../ag
 import { getModelId, getVideoEnabled, getVisionEnabled, loadConfig, type OpoclawConfig } from "../config.ts";
 import { requiresToolApproval } from "../tools/index.ts";
 import { buildSystemPrompt } from "./shared.ts";
+import { registerDeliveryTarget } from "./delivery.ts";
 
 type OpenAIContentPart =
     | { type: "text"; text?: string }
@@ -167,6 +168,10 @@ export async function handleOpenAIRequest(req: Request, config = loadConfig()): 
         "openai",
     );
     const session = new AgentSession(`opoclaw-openai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    // API clients are request/response only: shared delivery accurately records
+    // that unsolicited background messages cannot be routed to this channel.
+    session.deliveryTarget = { channel: "terminal", conversationId: `openai-${session.sessionId}`, label: "OpenAI API request" };
+    registerDeliveryTarget(session.deliveryTarget, async () => ({ delivered: false, detail: "OpenAI API does not support unsolicited delivery." }));
 
     for (const message of history) {
         await session.addMessage(message);
@@ -183,6 +188,10 @@ export async function handleOpenAIRequest(req: Request, config = loadConfig()): 
             }
             return { approved: true };
         },
+        // OpenAI's response schema has no unsolicited-delivery channel; progress
+        // and budget notices remain in the durable activity/delivery records.
+        onToolProgress: async () => {},
+        onUsageAlert: async () => {},
     });
 
     const model = body.model || "opoclaw";

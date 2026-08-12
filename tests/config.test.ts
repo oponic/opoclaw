@@ -71,6 +71,38 @@ describe("config TOML", () => {
     expect(getExposedCommands({ exposed_commands: ["ls", "cat"] } as any)).toEqual(["ls", "cat"]);
   });
 
+  test("parses durable platform configuration", () => {
+    const parsed = parseTOML(`
+[cron]
+enabled = true
+timezone = "America/New_York"
+catch_up = false
+max_jobs = 4
+[jobs]
+max_concurrent = 3
+max_per_session = 1
+[tools]
+deno_enabled = true
+deno_timeout_ms = 5000
+[usage_alerts]
+hard_limit = 10
+session_limit = 2
+job_limit = 1
+[artifacts]
+retention_days = 7
+max_bytes = 1024
+[activity]
+enabled = true
+token = "local-token"
+`);
+    expect(parsed.cron.timezone).toBe("America/New_York");
+    expect(parsed.jobs.max_concurrent).toBe(3);
+    expect(parsed.tools.deno_enabled).toBe(true);
+    expect(parsed.usage_alerts.job_limit).toBe(1);
+    expect(parsed.artifacts.max_bytes).toBe(1024);
+    expect(parsed.activity.enabled).toBe(true);
+  });
+
   test("feature toggles default to false", () => {
     expect(getSemanticSearchEnabled({} as any)).toBe(false);
     expect(useTomlFiles({} as any)).toBe(false);

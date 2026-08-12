@@ -33,6 +33,22 @@ header "opoclaw installer ($OS)"
 
 # ── Package managers ────────────────────────────────────────────────────────
 
+install_deno() {
+    if command -v deno &>/dev/null; then
+        ok "Deno already installed ($(deno --version | head -1))"
+        return
+    fi
+    info "Installing Deno (required)..."
+    curl -fsSL https://deno.land/install.sh | sh
+    export PATH="$HOME/.deno/bin:$PATH"
+    if command -v deno &>/dev/null; then
+        ok "Deno installed ($(deno --version | head -1))"
+    else
+        echo "Error: Deno install failed."
+        exit 1
+    fi
+}
+
 install_bun() {
     if command -v bun &>/dev/null; then
         ok "Bun already installed ($(bun --version))"
@@ -115,6 +131,7 @@ install_deps() {
 header "Checking dependencies"
 ensure_git
 install_bun
+install_deno
 
 header "Setting up opoclaw"
 clone_repo

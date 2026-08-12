@@ -1,8 +1,9 @@
 import net from "net";
 import tls from "tls";
-import { runAgent, type Message as ChatMessage } from "../agent.ts";
+import { AgentSession, type Message as ChatMessage } from "../agent.ts";
 import { loadConfig } from "../config.ts";
 import { buildSystemPrompt } from "./shared.ts";
+import { deliver, registerDeliveryTarget } from "./delivery.ts";
 
 function splitIrcMessage(text: string, maxLen = 400): string[] {
     const chunks: string[] = [];
@@ -88,18 +89,28 @@ export async function startIRC(): Promise<void> {
 
             const cleaned = text.replace(mentionRegex, "").trim();
             const key = target.startsWith("#") ? target : sender;
+            registerDeliveryTarget({ channel: "irc", conversationId: key, label: key }, async (content, attachments) => {
+                if (attachments?.length) return { delivered: false, detail: "Attachments are not supported by IRC." };
+                for (const chunk of splitIrcMessage(content)) send(`PRIVMSG ${target.startsWith("#") ? target : sender} :${chunk}`);
+                return { delivered: true };
+            });
             const history = historyByTarget.get(key) || [];
 
             const systemPrompt = await buildSystemPrompt(config, [], "irc");
 
             const userText = cleaned || "(empty message)";
             const historyWithUser = history.concat([{ role: "user", content: `[${sender}]: ${userText}` }]);
-
-            const { text: responseText } = await runAgent(historyWithUser, systemPrompt, config, {
+            const session = new AgentSession(`opoclaw-irc-${key}-${Date.now()}`);
+            session.deliveryTarget = { channel: "irc", conversationId: key, label: key };
+            for (const item of historyWithUser) await session.addMessage(item);
+            const { text: responseText } = await session.evaluate(systemPrompt, config, {
                 onFirstToken: () => {},
                 onToolCall: () => {},
-                onToolCallError: () => {}
-            }, `opoclaw-irc-${key}-${Date.now()}`);
+                onToolCallError: () => {},
+                requestToolApproval: async () => ({ approved: false, message: "IRC cannot collect interactive approval." }),
+                onToolProgress: async (progress) => { await deliver(session.deliveryTarget!, progress); },
+                onUsageAlert: async (threshold) => { await deliver(session.deliveryTarget!, `Usage alert: rolling spending reached $${threshold.toFixed(2)}.`); },
+            });
 
             pushHistory(key, { role: "user", content: `[${sender}]: ${userText}` });
             if (responseText && responseText.trim() !== "HEARTBEAT_OK") {

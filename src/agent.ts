@@ -1,10 +1,14 @@
 import { getTools, getToolsFiltered, handleToolCallDefinition } from "./tools";
 import { type ToolDefinition } from "./tools/types.ts";
 import { getActiveProvider, getModelId, type OpoclawConfig } from "./config.ts";
-import { recordUsage } from "./usage.ts";
+import { getRollingCost, recordUsage } from "./usage.ts";
 import { provider } from "./provider/index.ts";
 import { logInteraction, type InteractionKind } from "./interactions.ts";
 import type { Message, ToolCall } from "./provider/types.ts";
+import type { ConversationRef } from "./channels/delivery.ts";
+import { getPolicyDecision, grantApproval } from "./policy.ts";
+import { logActivity } from "./activity.ts";
+import { recordReplay } from "./replay.ts";
 
 function contentToString(content: any): string {
     if (typeof content === "string") return content;
@@ -143,8 +147,10 @@ interface AgentCallbacks {
     onFirstToken?: () => void,
     onToolCall?: (call: ToolCall, uniqueId: string) => void,
     onToolCallError?: (uniqueId: string, error: Error) => void,
-    requestToolApproval?: (call: ToolCall, uniqueId: string) => Promise<{ approved: boolean; message?: string }>,
+    requestToolApproval?: (call: ToolCall, uniqueId: string, resource?: string) => Promise<{ approved: boolean; message?: string; scope?: "once" | "session" | "duration" }>,
     onToolBatch?: (calls: ToolCall[], results: ToolResult[], sessionId: string) => Promise<void>,
+    onToolProgress?: (message: string, count: number) => Promise<void>,
+    onUsageAlert?: (threshold: number) => Promise<void>,
     onDeepResearchSummary?: (summary: string) => Promise<void>,
     executeTool?: (call: ToolCall, args: Record<string, any>) => Promise<string | undefined>,
     onAgentComplete?: (result: AgentResponse) => void,
@@ -169,6 +175,11 @@ export class AgentSession {
     currentSystemPrompt: string = "";
     pendingFileSend: { path: string; caption: string } | null = null;
     isSubagent: boolean = false;
+    deliveryTarget?: ConversationRef;
+    // Agent-management tools are needed for core context management; the remaining
+    // capabilities stay discoverable through tool_search.
+    private enabledToolsets = new Set<string>(["discovery", "information", "files", "agent"]);
+    private sessionCost = 0;
     private backgroundJobs = new Map<string, BackgroundSubagentJob>();
     private inputQueue: QueueItem[] = [];
     private isProcessing = false;
@@ -190,6 +201,14 @@ export class AgentSession {
         void logInteraction({ session: this.sessionId, kind, content, name });
     }
 
+
+    enableToolset(toolset: string): void {
+        this.enabledToolsets.add(toolset);
+    }
+
+    getEnabledToolsets(): string[] {
+        return [...this.enabledToolsets].sort();
+    }
 
     registerBackgroundJob(job: BackgroundSubagentJob): void {
         if(this.backgroundJobs.get(job.id)?.status == "running") {
@@ -439,13 +458,27 @@ export class AgentSession {
         };
 
         let didRunTools = false;
-        const maxIterations = options?.maxIterations ?? 20;
-        const agentTools = options?.tools ?? getTools(config);
+        // A general agent turn is no longer capped by a fixed tool-call count.
+        // Specialized callers may still provide a ceiling explicitly.
+        const maxIterations = options?.maxIterations ?? Number.POSITIVE_INFINITY;
+        const agentTools = options?.tools ?? getTools(config, this.enabledToolsets);
+        let toolCallCount = 0;
+        const goal = contentToString([...this.messages].reverse().find((m) => m.role === "user")?.content).replace(/\s+/g, " ").slice(0, 90) || "Working on the request";
 
         for (let iteration = 0; iteration < maxIterations; iteration++) {
             this.trimContextByChars();
             this.injectBackgroundResultsIntoContext();
 
+            const hardLimit = config.usage_alerts?.hard_limit;
+            const sessionLimit = config.usage_alerts?.session_limit;
+            const jobLimit = config.usage_alerts?.job_limit;
+            const sessionCost = this.sessionCost;
+            const jobCost = this.isSubagent ? sessionCost : 0;
+            if ((hardLimit !== undefined && await getRollingCost() >= hardLimit) || (sessionLimit !== undefined && sessionCost >= sessionLimit) || (jobLimit !== undefined && jobCost >= jobLimit)) {
+                const blocked = { text: "Agent paused: the rolling spending limit has been reached.", ranTools: didRunTools };
+                if (callbacks.onAgentComplete) callbacks.onAgentComplete(blocked);
+                return blocked;
+            }
             const result = await provider.generateCompletion(
                 [systemMessage, ...this.messages],
                 config,
@@ -456,7 +489,12 @@ export class AgentSession {
             const { text, toolCalls, usage, reasoning_details } = result;
 
             if (usage) {
-                await recordUsage(usage, getModelId(config));
+                const cost = Number(usage.cost || 0);
+                this.sessionCost += cost;
+                const thresholds = config.usage_alerts?.enabled === false ? [] : await recordUsage(usage, getModelId(config), config.usage_alerts?.thresholds || [1, 2]);
+                for (const threshold of thresholds) {
+                    await callbacks.onUsageAlert?.(threshold);
+                }
             }
 
             if (toolCalls.length > 0) {
@@ -482,32 +520,32 @@ export class AgentSession {
                         if (callbacks.onToolCall) {
                             callbacks.onToolCall(tc, uniqueId);
                         }
-                        const runTool = async () => {
-                            if (callbacks.executeTool) {
-                                const handled = await callbacks.executeTool(tc, args);
-                                if (handled !== undefined) return handled;
-                            }
-                            
-                            const tool = agentTools.filter(x=>x.schema.function.name == name)[0];
-
-                            if(!tool) {
-                                return `Unknown tool: ${name}`;
-                            }
-                            return await handleToolCallDefinition(tool, args, {
-                                config,
-                                session: this,
-                                onDeepResearchSummary: callbacks.onDeepResearchSummary
-                            });
-                        };
-                        if (callbacks.requestToolApproval) {
-                            const approval = await callbacks.requestToolApproval(tc, uniqueId);
-                            if (!approval.approved) {
-                                toolResult = approval.message || "Not authorized to perform this action.";
+                        const tool = agentTools.find((candidate) => candidate.schema.function.name === name);
+                        if (!tool) {
+                            toolResult = `Unknown tool: ${name}`;
+                        } else {
+                            const decision = await getPolicyDecision(tool, this.sessionId, args);
+                            await logActivity({ type: "policy.evaluated", sessionId: this.sessionId, tool: name, detail: { capabilities: decision.capabilities, resource: decision.resource, requiresApproval: decision.requiresApproval } });
+                            const runTool = async () => {
+                                if (callbacks.executeTool) {
+                                    const handled = await callbacks.executeTool(tc, args);
+                                    if (handled !== undefined) return handled;
+                                }
+                                return await handleToolCallDefinition(tool, args, { config, session: this, onDeepResearchSummary: callbacks.onDeepResearchSummary });
+                            };
+                            if (!decision.allowed) {
+                                toolResult = decision.reason || "Tool is blocked by policy.";
+                            } else if (decision.requiresApproval) {
+                                if (!callbacks.requestToolApproval) {
+                                    toolResult = decision.reason || "Approval is required.";
+                                } else {
+                                    const approval = await callbacks.requestToolApproval(tc, uniqueId, decision.resource);
+                                    if (approval.approved && approval.scope) await grantApproval(this.sessionId, name, approval.scope, decision.resource);
+                                    toolResult = approval.approved ? await runTool() : (approval.message || "Not authorized to perform this action.");
+                                }
                             } else {
                                 toolResult = await runTool();
                             }
-                        } else {
-                            toolResult = await runTool();
                         }
                     } catch (e: any) {
                         if (callbacks.onToolCallError) {
@@ -527,6 +565,13 @@ export class AgentSession {
                         content: toolResult,
                     });
                     this.logEvent("tool_result", toolResult, tc.function.name);
+                    await recordReplay("tool", { sessionId: this.sessionId, name: tc.function.name, arguments: tc.function.arguments }, { output: toolResult });
+                    toolCallCount++;
+                    if (toolCallCount >= 10 && toolCallCount % 10 === 0) {
+                        const filled = Math.min(10, Math.max(1, Math.round(toolCallCount / 10)));
+                        const estimatedTotal = Math.max(100, Math.ceil(toolCallCount / 10) * 100);
+                        await callbacks.onToolProgress?.(`[${goal}] - [${"#".repeat(filled)}${" ".repeat(10 - filled)}] ${toolCallCount}/${estimatedTotal} iterations`, toolCallCount);
+                    }
                 }
 
                 if (callbacks.onToolBatch) {

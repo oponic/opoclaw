@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 
 export interface UsageStats {
     total: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
+    alerts?: Record<string, string>;
     sessions: Array<{
         timestamp: string;
         model: string;
@@ -40,7 +41,7 @@ export async function loadUsage(): Promise<UsageStats> {
             return await file.json();
         }
     } catch { }
-    return { total: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, sessions: [] };
+    return { total: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, alerts: {}, sessions: [] };
 }
 
 async function saveUsage(stats: UsageStats): Promise<void> {
@@ -56,8 +57,21 @@ async function saveUsage(stats: UsageStats): Promise<void> {
     }
 }
 
-export async function recordUsage(usage: any, model: string): Promise<void> {
-    if (!usage) return;
+export async function getSessionCost(model: string, hours = 24): Promise<number> {
+    const since = Date.now() - hours * 60 * 60 * 1000;
+    return (await loadUsage()).sessions.filter((session) => session.model === model && new Date(session.timestamp).getTime() >= since).reduce((total, session) => total + (session.cost || 0), 0);
+}
+
+export async function getRollingCost(hours = 24): Promise<number> {
+    const since = Date.now() - hours * 60 * 60 * 1000;
+    return (await loadUsage()).sessions
+        .filter((session) => new Date(session.timestamp).getTime() >= since)
+        .reduce((total, session) => total + (session.cost || 0), 0);
+}
+
+export async function recordUsage(usage: any, model: string, thresholds = [1, 2]): Promise<number[]> {
+    if (!usage) return [];
+    const beforeCost = await getRollingCost();
     const stats = await loadUsage();
     const entry = {
         timestamp: new Date().toISOString(),
@@ -78,4 +92,15 @@ export async function recordUsage(usage: any, model: string): Promise<void> {
         stats.sessions = stats.sessions.slice(-500);
     }
     await saveUsage(stats);
+    const afterCost = beforeCost + entry.cost;
+    const now = new Date().toISOString();
+    stats.alerts ||= {};
+    const crossed = thresholds.filter((threshold) => beforeCost < threshold && afterCost >= threshold);
+    const fresh = crossed.filter((threshold) => {
+        const previous = stats.alerts![String(threshold)];
+        return !previous || new Date(previous).getTime() < Date.now() - 24 * 60 * 60 * 1000;
+    });
+    for (const threshold of fresh) stats.alerts[String(threshold)] = now;
+    if (fresh.length) await saveUsage(stats);
+    return fresh;
 }

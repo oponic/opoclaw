@@ -4,13 +4,13 @@ import { getTools } from "../tools/index.ts";
 import { defineTool } from "../tools/types.ts";
 import { readFile } from "../workspace.ts";
 import { buildSystemPrompt, isHibernating } from "./shared.ts";
-import { sendToLastDiscordChannel, getLastDiscordChannelId } from "./discord/index.ts";
+import { deliverLastActive, getLastDeliveryTarget } from "./delivery.ts";
 
 const DEFAULT_INTERVAL_MINUTES = 60;
 
 const SEND_MESSAGE_TOOL = defineTool(
     "send_message",
-    "Send a message to the last active Discord channel. Use this if the heartbeat task warrants reaching out. Does nothing if there is no recent Discord channel.",
+    "Send a message to the last active supported conversation. Use this if the heartbeat task warrants reaching out.",
     {
         content: {
             type: "string",
@@ -34,13 +34,13 @@ export async function runHeartbeat(): Promise<void> {
     }
 
     const session = new AgentSession(`opoclaw-heartbeat-${Date.now()}`);
-    const hasChannel = getLastDiscordChannelId() !== null;
+    const hasChannel = getLastDeliveryTarget() !== null; // delivery is durable and channel-neutral.
     const extraSections = [
         "\n## Heartbeat\nThis is an automated heartbeat invocation, not a user message. " +
         "Follow the instructions below. " +
         (hasChannel
-            ? "You may call the `send_message` tool to post to the last active Discord channel if appropriate. Stay quiet if there is nothing worth sending."
-            : "There is no active Discord channel right now, so the `send_message` tool will have no effect."),
+            ? "You may call the `send_message` tool to post to the last active conversation if appropriate. Stay quiet if there is nothing worth sending."
+            : "There is no active conversation right now, so the `send_message` tool will have no effect."),
     ];
     const systemPrompt = await buildSystemPrompt(config, extraSections, "heartbeat");
 
@@ -52,8 +52,8 @@ export async function runHeartbeat(): Promise<void> {
         if (call.function.name === "send_message") {
             const text = String(args.content || "").trim();
             if (!text) return "Error: 'content' is required for send_message.";
-            const sent = await sendToLastDiscordChannel(text);
-            return sent ? "Message sent to Discord." : "No active Discord channel to send to.";
+            const result = await deliverLastActive(text);
+            return result.delivered ? "Message delivered." : result.detail || "No active conversation to send to.";
         }
         return undefined;
     };

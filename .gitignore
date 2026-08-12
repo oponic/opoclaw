@@ -7,6 +7,10 @@ config.json.bak
 config.toml
 usage.json
 data/
+data/jobs.json
+data/outbound.json
+data/activity.jsonl
+data/artifacts/
 workspace/
 cache/
 .gateway.lock

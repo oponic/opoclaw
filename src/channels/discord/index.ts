@@ -26,6 +26,7 @@ import { getVisionEnabled, getVideoEnabled, loadConfig, getActiveProvider, getMo
 import { isHibernating, setHibernating, buildSystemPrompt, OP_DIR } from "../shared.ts";
 import { exec, getUpdateTag } from "../../utils.ts";
 import { getPollSummary, handlePoll } from "./polls.ts";
+import { deliver, registerDeliveryTarget } from "../delivery.ts";
 
 const COMMANDS = [
     {
@@ -94,30 +95,34 @@ async function addReaction(msg: Message, emoji: string): Promise<void> {
     }
 }
 
+type ApprovalChoice = "once" | "session" | "duration" | null;
+
 async function sendEmbedApproval(
     channel: TextChannel,
     authorizedUserId: string,
     embed: EmbedBuilder,
     yesId: string,
     noId: string,
-): Promise<boolean> {
+): Promise<ApprovalChoice> {
     const notice = await channel.send("-# Requesting permission...");
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(yesId).setLabel("Yes").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`${yesId}:once`).setLabel("Once").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`${yesId}:session`).setLabel("Session").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`${yesId}:duration`).setLabel("30 min").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(noId).setLabel("No").setStyle(ButtonStyle.Danger),
     );
     const prompt = await channel.send({ embeds: [embed], components: [row] });
-    const approved = await awaitButtonApproval(prompt, authorizedUserId);
+    const choice = await awaitButtonApproval(prompt, authorizedUserId);
     const finalEmbed = EmbedBuilder.from(embed)
         .setColor(0x242429)
-        .setFooter({ text: approved ? "Approved" : "Denied or timed out" });
+        .setFooter({ text: choice ? `Approved (${choice})` : "Denied or timed out" });
     await prompt.edit({ embeds: [finalEmbed], components: [] });
-    await notice.edit(`-# Permission ${approved ? "granted" : "denied"}.`);
-    return approved;
+    await notice.edit(`-# Permission ${choice ? `granted (${choice})` : "denied"}.`);
+    return choice;
 }
 
-async function awaitButtonApproval(prompt: Message, authorizedUserId: string): Promise<boolean> {
-    let approved = false;
+async function awaitButtonApproval(prompt: Message, authorizedUserId: string): Promise<ApprovalChoice> {
+    let approved: ApprovalChoice = null;
     const expiresAt = Date.now() + APPROVAL_TIMEOUT_MS;
     while (Date.now() < expiresAt) {
         const remaining = expiresAt - Date.now();
@@ -133,11 +138,13 @@ async function awaitButtonApproval(prompt: Message, authorizedUserId: string): P
                 });
                 continue;
             }
-            approved = interaction.customId.endsWith(":yes");
+            approved = interaction.customId.includes(":yes:")
+                ? (interaction.customId.endsWith(":session") ? "session" : interaction.customId.endsWith(":duration") ? "duration" : "once")
+                : null;
             await interaction.deferUpdate();
             break;
         } catch {
-            approved = false;
+            approved = null;
             break;
         }
     }
@@ -362,6 +369,7 @@ async function onMessage(client: Client, msg: Message) {
     let session = channelSessions.get(msg.channelId);
     if (!session) {
         session = new AgentSession(`opoclaw-discord-${client.user!.id}-${msg.channelId}-${Date.now()}`);
+        session.deliveryTarget = { channel: "discord", conversationId: msg.channelId, label: `Discord ${msg.channelId}` };
         channelSessions.set(msg.channelId, session);
         for (const m of await buildChannelHistory(client, msg)) {
             await session.addMessage(m);
@@ -398,7 +406,26 @@ async function onMessage(client: Client, msg: Message) {
     await addReaction(msg, EYES);
 
     if ("send" in msg.channel) {
+        session.deliveryTarget = { channel: "discord", conversationId: msg.channel.id, label: `Discord ${msg.channel.id}` };
         lastActiveChannel = msg.channel as TextChannel;
+        const activeChannel = msg.channel as TextChannel;
+        registerDeliveryTarget(
+            { channel: "discord", conversationId: msg.channel.id, label: `Discord ${msg.channel.id}` },
+            async (content, attachments) => {
+                try {
+                    const chunks = splitMessage(content);
+                    for (let index = 0; index < chunks.length; index++) {
+                        const chunk = chunks[index];
+                        if (!chunk) continue;
+                        if (index === 0 && attachments?.length) await activeChannel.send({ content: chunk, files: attachments });
+                        else await activeChannel.send(chunk);
+                    }
+                    return { delivered: true };
+                } catch (error: any) {
+                    return { delivered: false, detail: error?.message || String(error) };
+                }
+            },
+        );
     }
 
     const extraSections = [
@@ -497,7 +524,7 @@ async function onMessage(client: Client, msg: Message) {
         await (msg.channel as TextChannel).send(`-# ${trimmed}`);
     };
 
-    const requestToolApproval = async (call: ToolCall, uniqueId: string) => {
+    const requestToolApproval = async (call: ToolCall, uniqueId: string, resource?: string) => {
         if (!requiresToolApproval(call.function.name)) {
             return { approved: true };
         }
@@ -528,18 +555,18 @@ async function onMessage(client: Client, msg: Message) {
 
         const embed = new EmbedBuilder()
             .setTitle("Authorize Tool Call")
-            .setDescription(`Tool: \`${call.function.name}\`\nArgs: ${argsPreview}`)
+            .setDescription(`Tool: \`${call.function.name}\`\nResource: \`${resource || "current request"}\`\nArgs: ${argsPreview}\n\nThis approval applies once to this exact resource.`)
             .setColor(0x242429);
-        const approved = await sendEmbedApproval(channel, authorizedUserId, embed, `approve:${uniqueId}:yes`, `approve:${uniqueId}:no`);
+        const scope = await sendEmbedApproval(channel, authorizedUserId, embed, `approve:${uniqueId}:yes`, `approve:${uniqueId}:no`);
 
-        if (!approved) {
+        if (!scope) {
             return {
                 approved: false,
                 message: "Not authorized to make this decision.",
             };
         }
 
-        return { approved: true };
+        return { approved: true, scope };
     };
 
     const executeTool = async (call: ToolCall, args: Record<string, any>): Promise<string | undefined> => {
@@ -641,6 +668,8 @@ async function onMessage(client: Client, msg: Message) {
                 requestToolApproval,
                 onToolBatch,
                 onDeepResearchSummary,
+                onToolProgress: async (progress) => { await deliver(session.deliveryTarget!, progress); },
+                onUsageAlert: async (threshold) => { await deliver(session.deliveryTarget!, `Usage alert: rolling 24-hour spending reached $${threshold.toFixed(2)}.`); },
                 executeTool,
             }
         );
