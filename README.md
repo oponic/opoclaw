@@ -51,19 +51,8 @@ When activity is enabled, query `GET /activity` on the core listener with `Autho
 
 Signal uses the local `signal-cli` daemon. During onboarding choose **Signal**, provide the linked/registered account number, then install and link `signal-cli` (for example `signal-cli link -n "opoclaw"`). Configure `channel.signal.socket` or `channel.signal.host`/`port` when using a non-default daemon endpoint. Signal supports replies, approvals, questions, reactions, attachments, queued delivery, progress, and usage alerts; group messages must mention the configured `channel.signal.bot_name`.
 
-See [`docs/platform-completion.md`](docs/platform-completion.md) for the feature-to-implementation and verification matrix.
-
-## Operations
-
-- `opoclaw doctor --json` validates configuration, Deno, workspace access, and enabled optional channel prerequisites.
-- `opoclaw activity --json` prints redacted activity events. Filter with `--type=`, `--session=`, `--job=`, and `--limit=`.
-- Durable jobs can be inspected by agents with `list_jobs` / `get_job` and cancelled with `cancel_job`.
-- `search_docs` lets agents search this bundled documentation safely; it returns project-relative file and line references.
-- `tools.deno_enabled` defaults to `true`; disabling it is the only supported way to run without the required Deno runtime.
-
 ## Docker
 
-Deno is installed in the supplied image because sandboxed TypeScript execution is enabled by default. `signal-cli` remains an optional host/container addition when enabling Signal.
 Build and run with Docker (network access is enabled by default, required for search/web fetch):
 
 ```bash
