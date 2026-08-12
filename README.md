@@ -51,8 +51,6 @@ When activity is enabled, query `GET /activity` on the core listener with `Autho
 
 Signal uses the local `signal-cli` daemon. During onboarding choose **Signal**, provide the linked/registered account number, then install and link `signal-cli` (for example `signal-cli link -n "opoclaw"`). Configure `channel.signal.socket` or `channel.signal.host`/`port` when using a non-default daemon endpoint. Signal supports replies, approvals, questions, reactions, attachments, queued delivery, progress, and usage alerts; group messages must mention the configured `channel.signal.bot_name`.
 
-See [`docs/platform-completion.md`](docs/platform-completion.md) for the feature-to-implementation and verification matrix.
-
 ## Operations
 
 - `opoclaw doctor --json` validates configuration, Deno, workspace access, and enabled optional channel prerequisites.
