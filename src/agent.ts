@@ -203,7 +203,7 @@ export class AgentSession {
 
 
     enableToolset(toolset: string): void {
-        this.enabledToolsets.add(toolset);
+        this.enabledToolsets.add(toolset.trim().toLowerCase());
     }
 
     getEnabledToolsets(): string[] {
@@ -461,7 +461,9 @@ export class AgentSession {
         // A general agent turn is no longer capped by a fixed tool-call count.
         // Specialized callers may still provide a ceiling explicitly.
         const maxIterations = options?.maxIterations ?? Number.POSITIVE_INFINITY;
-        const agentTools = options?.tools ?? getTools(config, this.enabledToolsets);
+        // Tool search can enable a toolset during a turn, so resolve the visible
+        // catalog anew for each model request rather than freezing its first view.
+        const resolveAgentTools = () => options?.tools ?? getTools(config, this.enabledToolsets);
         let toolCallCount = 0;
         const goal = contentToString([...this.messages].reverse().find((m) => m.role === "user")?.content).replace(/\s+/g, " ").slice(0, 90) || "Working on the request";
 
@@ -479,6 +481,7 @@ export class AgentSession {
                 if (callbacks.onAgentComplete) callbacks.onAgentComplete(blocked);
                 return blocked;
             }
+            const agentTools = resolveAgentTools();
             const result = await provider.generateCompletion(
                 [systemMessage, ...this.messages],
                 config,

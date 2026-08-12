@@ -61,6 +61,10 @@ function withToolset(definition: ToolDefinition): ToolDefinition {
     return definition.toolset ? definition : { ...definition, toolset: toolsetOf(definition) };
 }
 
+export function listToolsets(): string[] {
+    return [...new Set(Object.values(TOOL_DEFINITIONS).map((definition) => toolsetOf(withToolset(definition))))].sort();
+}
+
 export function searchToolsets(query: string): { toolset: string; tools: string[]; description: string }[] {
     const normalized = query.toLowerCase();
     const groups = new Map<string, ToolDefinition[]>();

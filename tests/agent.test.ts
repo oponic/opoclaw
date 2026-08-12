@@ -169,6 +169,43 @@ describe("agent", () => {
         }
     });
 
+    test("tool_search enables a toolset for the next model request", async () => {
+        const original = provider.generateCompletion;
+        let call = 0;
+        let sawShell = false;
+        provider.generateCompletion = async (_messages, _config, _first, tools) => {
+            call++;
+            if (call === 1) return toolCallResult("tool_search", { query: "shell", enable_toolsets: ["runtime"] });
+            sawShell = tools.some((tool) => tool.schema.function.name === "shell");
+            return textResult("runtime enabled");
+        };
+        try {
+            const session = new AgentSession("test-toolset-refresh");
+            await session.addMessage({ role: "user", content: "enable shell" });
+            await session.evaluate("system", cfg, dummyCallbacks);
+            expect(sawShell).toBe(true);
+        } finally { provider.generateCompletion = original; }
+    });
+
+    test("tool_search rejects unknown toolsets without changing visibility", async () => {
+        const original = provider.generateCompletion;
+        let call = 0;
+        let sawShell = false;
+        provider.generateCompletion = async (_messages, _config, _first, tools) => {
+            call++;
+            if (call === 1) return toolCallResult("tool_search", { query: "shell", enable_toolsets: ["not-a-toolset"] });
+            sawShell = tools.some((tool) => tool.schema.function.name === "shell");
+            return textResult("done");
+        };
+        try {
+            const session = new AgentSession("test-toolset-reject");
+            await session.addMessage({ role: "user", content: "enable imaginary tools" });
+            await session.evaluate("system", cfg, dummyCallbacks);
+            expect(sawShell).toBe(false);
+            expect(session.getEnabledToolsets()).not.toContain("not-a-toolset");
+        } finally { provider.generateCompletion = original; }
+    });
+
     test("session_status tool returns session info", async () => {
         const original = provider.generateCompletion;
         let call = 0;
